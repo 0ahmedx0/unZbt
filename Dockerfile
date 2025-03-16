@@ -1,4 +1,4 @@
-FROM python:3.12-alpine AS build
+FROM python:3.13-alpine AS build
 
 RUN apk update && \
     apk add --no-cache \
@@ -24,7 +24,7 @@ RUN pip install -U pip setuptools wheel && \
     pip install -r /tmp/requirements.txt && \
     /tmp/install_unrar.sh
 
-FROM python:3.12-alpine
+FROM python:3.13-alpine
 
 ARG VERSION="7.2.0"
 
