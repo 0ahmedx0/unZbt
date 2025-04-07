@@ -6,7 +6,7 @@ authors = [
 ]
 description = "A Telegram bot to extract various types of archives"
 dependencies = [
-  "aiocron==1.8",
+  "aiocron==2.1",
   "aiofiles==24.1.0",
   "aiohttp==3.11.16",
   "base58check==1.0.2",

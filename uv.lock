@@ -4,15 +4,16 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "aiocron"
-version = "1.8"
+version = "2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "croniter" },
+    { name = "cronsim" },
+    { name = "python-dateutil" },
     { name = "tzlocal" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/f2/e47f195990b58f13ea8b895498cb28b388716568b53c412e6456fc93f011/aiocron-1.8.tar.gz", hash = "sha256:48546513faf2eb7901e65a64eba7b653c80106ed00ed9ca3419c3d10b6555a01", size = 16304 }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/cc/71fdc16da63deec40da37977541d81052227fc7cbbf2c13358f745f05d86/aiocron-2.1.tar.gz", hash = "sha256:1bb65a36aee137e8833592783956e0c7dc478bc3e9273fc2841d5d0c6045e4d2", size = 21150 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/35/f36cb7afa40cdfa6143cb4a81676a1ab0864a1d3f269eda3a694752ae1f1/aiocron-1.8-py3-none-any.whl", hash = "sha256:b6313214c311b62aa2220e872b94139b648631b3103d062ef29e5d3230ddce6d", size = 4826 },
+    { url = "https://files.pythonhosted.org/packages/f2/82/90d3c43e137d06496e0305ce06596a0e36c7cd13c6de986378002c0fd749/aiocron-2.1-py3-none-any.whl", hash = "sha256:b2612b67c552ebc4d24f524fe0316dec30b44f3c5a1d9a3697493d840aa7a5de", size = 5559 },
 ]
 
 [[package]]
@@ -225,16 +226,12 @@ wheels = [
 ]
 
 [[package]]
-name = "croniter"
-version = "6.0.0"
+name = "cronsim"
+version = "2.6"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "python-dateutil" },
-    { name = "pytz" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/2f/44d1ae153a0e27be56be43465e5cb39b9650c781e001e7864389deb25090/croniter-6.0.0.tar.gz", hash = "sha256:37c504b313956114a983ece2c2b07790b1f1094fe9d81cc94739214748255577", size = 64481 }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/d8/cfb8d51a51f6076ffa09902c02978c7db9764cca78f4ee832e691d20f44b/cronsim-2.6.tar.gz", hash = "sha256:5aab98716ef90ab5ac6be294b2c3965dbf76dc869f048846a0af74ebb506c10d", size = 20315 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/4b/290b4c3efd6417a8b0c284896de19b1d5855e6dbdb97d2a35e68fa42de85/croniter-6.0.0-py2.py3-none-any.whl", hash = "sha256:2f878c3856f17896979b2a4379ba1f09c83e374931ea15cc835c5dd2eee9b368", size = 25468 },
+    { url = "https://files.pythonhosted.org/packages/8c/dd/9c40c4e0f4d3cb6cf52eb335e9cc1fa140c1f3a87146fb6987f465b069da/cronsim-2.6-py3-none-any.whl", hash = "sha256:5e153ff8ed64da7ee8d5caac470dbeda8024ab052c3010b1be149772b4801835", size = 13500 },
 ]
 
 [[package]]
@@ -813,15 +810,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pytz"
-version = "2025.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f8/bf/abbd3cdfb8fbc7fb3d4d38d320f2441b1e7cbe29be4f23797b4a2b5d8aac/pytz-2025.2.tar.gz", hash = "sha256:360b9e3dbb49a209c21ad61809c7fb453643e048b38924c765813546746e81c3", size = 320884 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/c4/34e93fe5f5429d7570ec1fa436f1986fb1f00c3e0f43a589fe2bbcd22c3f/pytz-2025.2-py2.py3-none-any.whl", hash = "sha256:5ddf76296dd8c44c26eb8f4b6f35488f3ccbf6fbbd7adee0b7262d43f0ec2f00", size = 509225 },
-]
-
-[[package]]
 name = "requests"
 version = "2.32.3"
 source = { registry = "https://pypi.org/simple" }
@@ -946,7 +934,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiocron", specifier = "==1.8" },
+    { name = "aiocron", specifier = "==2.1" },
     { name = "aiofiles", specifier = "==24.1.0" },
     { name = "aiohttp", specifier = "==3.11.16" },
     { name = "base58check", specifier = "==1.0.2" },
