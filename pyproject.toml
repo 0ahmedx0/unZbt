@@ -23,7 +23,7 @@ dependencies = [
   "requests==2.32.3",
   "setuptools==78.1.0",
   "unzip-http==0.6",
-  "wheel==0.46.0",
+  "wheel==0.46.1",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
