@@ -21,7 +21,7 @@ dependencies = [
   "pyrofork==2.3.61",
   "PyTgCrypto==1.2.9.2",
   "requests==2.32.3",
-  "setuptools==79.0.1",
+  "setuptools==80.0.0",
   "unzip-http==0.6",
   "wheel==0.46.1",
 ]
