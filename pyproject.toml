@@ -16,7 +16,7 @@ dependencies = [
   "motor==3.7.0",
   "mutagen==1.47.0",
   "Pillow==11.2.1",
-  "psutil==7.0.0",
+  "psutil==7.1.0",
   "pykeyboard==0.1.5",
   "pyrofork==2.3.61",
   "PyTgCrypto==1.2.9.2",
