@@ -8,7 +8,7 @@ description = "A Telegram bot to extract various types of archives"
 dependencies = [
   "aiocron==2.1",
   "aiofiles==24.1.0",
-  "aiohttp==3.11.18",
+  "aiohttp==3.13.3",
   "base58check==1.0.2",
   "dnspython==2.7.0",
   "gitdb==4.0.12",
@@ -18,12 +18,12 @@ dependencies = [
   "Pillow==11.2.1",
   "psutil==7.0.0",
   "pykeyboard==0.1.5",
-  "pyrofork==2.3.61",
+  "pyrofork==2.3.69.dev1",
   "PyTgCrypto==1.2.9.2",
   "requests==2.32.3",
   "setuptools==80.1.0",
   "unzip-http==0.6",
-  "wheel==0.46.1",
+  "wheel==0.46.2",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
