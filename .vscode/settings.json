@@ -15,10 +15,11 @@
   "explorer.fileNesting.enabled": true,
   "explorer.fileNesting.expand": false,
   "explorer.fileNesting.patterns": {
+    "AGENTS.md": "skills-lock.json, TODO.md",
     "Dockerfile": "docker-compose.yml, .dockerignore",
     "heroku.yml": "app.json, Procfile",
-    "pyproject.toml": ".python-version, .env, uv.lock",
-    "README.md": "LICENSE, CHANGELOG.md, CreateMongoDB.md, bot_thumb.jpg, .deepsource.toml, AUTHORS, CONTRIBUTORS.svg, .gitignore, AGENTS.md",
+    "pyproject.toml": ".env, .python-version, uv.lock",
+    "README.md": ".deepsource.toml, .gitignore, AUTHORS, bot_thumb.jpg, CHANGELOG.md, CONTRIBUTORS.svg, CreateMongoDB.md, LICENSE",
     "start.sh": "setup.sh"
   },
   "files.eol": "\n",
@@ -47,6 +48,7 @@
   "python.terminal.focusAfterLaunch": true,
   "python.terminal.shellIntegration.enabled": true,
   "search.exclude": {
+    ".agents": true,
     "uv.lock": true,
   },
   "togglequotes.chars": [

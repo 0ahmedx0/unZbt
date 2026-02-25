@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "skills": {
+    "pyrofork-api": {
+      "source": "EDM115/skills",
+      "sourceType": "github",
+      "computedHash": "a361b0810e8e8a2551d49b8f5efbd3b89f5d529cf072e1b269a9c999187c2128"
+    },
+    "pyrofork-api-full-reference": {
+      "source": "EDM115/skills",
+      "sourceType": "github",
+      "computedHash": "f02bb3d8b71b320f9eeb6d4837b20fb1661dc8e6d7c7ac245a54e947d5ff389a"
+    },
+    "pyrofork-best-practices": {
+      "source": "EDM115/skills",
+      "sourceType": "github",
+      "computedHash": "6546cab43b1b59fa37f1c95169dbdfd6701b3ef718059b652c36cb9b11db5635"
+    },
+    "pyrofork-docs": {
+      "source": "EDM115/skills",
+      "sourceType": "github",
+      "computedHash": "7803b43b4eff1fd590b3cc5b02013f5e05a6003c48a818c25d3b2bd9d1b034e9"
+    }
+  }
+}
