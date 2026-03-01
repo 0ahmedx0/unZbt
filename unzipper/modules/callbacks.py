@@ -52,11 +52,64 @@ from unzipper.helpers.unzip_help import (
     progress_for_pyrogram,
     TimeFormatter,
 )
+
 split_file_pattern = r"\.(?:z\d+|r\d{2})$"
 rar_file_pattern = r"\.part\d+\.rar$"
 telegram_url_pattern = r"(?:http[s]?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]+)\/(\d+)"
 
-# --- تعديل جديد ---
+# --- هذه الدوال يجب أن تبقى كما هي في الأعلى ---
+async def download(url, path):
+    try:
+        async with ClientSession() as session, session.get(
+            url, timeout=None, allow_redirects=True
+        ) as resp, openfile(path, mode="wb") as file:
+            async for chunk in resp.content.iter_chunked(Config.CHUNK_SIZE):
+                await file.write(chunk)
+    except InvalidURL:
+        LOGGER.error(Messages.INVALID_URL)
+    except Exception:
+        LOGGER.error(Messages.ERR_DL.format(url))
+
+async def download_with_progress(url, path, message, unzip_bot):
+    try:
+        async with ClientSession() as session, session.get(
+            url, timeout=None, allow_redirects=True
+        ) as resp:
+            total_size = int(resp.headers.get("Content-Length", 0))
+            current_size = 0
+            start_time = time()
+            async with openfile(path, mode="wb") as file:
+                async for chunk in resp.content.iter_chunked(Config.CHUNK_SIZE):
+                    if message.from_user is not None and await get_cancel_task(
+                        message.from_user.id
+                    ):
+                        await message.edit(text=Messages.DL_STOPPED)
+                        await del_cancel_task(message.from_user.id)
+                        return False
+                    await file.write(chunk)
+                    current_size += len(chunk)
+                    await progress_for_pyrogram(
+                        current_size,
+                        total_size,
+                        Messages.DL_URL.format(url),
+                        message,
+                        start_time,
+                        unzip_bot,
+                    )
+    except Exception:
+        LOGGER.error(Messages.ERR_DL.format(url))
+
+def get_zip_http(url):
+    rzf = unzip_http.RemoteZipFile(url)
+    paths = rzf.namelist()
+    return rzf, paths
+
+async def async_generator(iterable):
+    for item in iterable:
+        yield item
+# --- نهاية الدوال الأصلية ---
+
+# --- تعديلات جديدة مُضافة ---
 def chunk_list(lst, n):
     """تقسيم القائمة إلى مجموعات بحجم n"""
     for i in range(0, len(lst), n):
@@ -96,11 +149,10 @@ async def send_album_batch(unzip_bot, chat_id, batch, log_msg=None):
                     LOGGER.error(f"Failed to send individual file: {e2}")
             return False
     return False
+# --- نهاية التعديلات الجديدة ---
 
-# --- نهاية التعديل الجديد ---
 
-
-# Callbacks
+# --- الدالة الرئيسية مُحدثة ---
 @unzipperbot.on_callback_query()
 async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
     uid = query.from_user.id
@@ -1160,19 +1212,8 @@ Starting to send videos first...
                         reply_markup=keyboard
                     )
                     # الانتظار لرد المستخدم
-                    try:
-                        # نحتاج إلى معرفة رد المستخدم التالي
-                        # هذا يتطلب تغيير في هيكلية الكود لجعله دالة مستقلة
-                        # أو استخدام نظام إلغاء داخلي
-                        # للتبسيط، سنستخدم await query.wait_for_callback
-                        # هذا يتطلب تغييرات في Pyrogram client
-                        # لذا نستخدم طريقة بديلة: نقوم بإرسال رسالة وننتظر حتى يضغط المستخدم زرًا
-                        # نفترض أن الزر سيؤدي إلى استدعاء هذه الدالة مرة أخرى مع مؤشر جديد
-                        # لن نستخدم await هنا، بل نعيد التحكم للدالة الرئيسية
-                        # ونضيف دالة جديدة للتعامل مع next_album
-                        break # نخرج من الحلقة الحالية وننتظر الضغطة التالية
-                    except asyncio.CancelledError:
-                        break
+                    # نستخدم break هنا، ونعتمد على next_album callback
+                    break # نخرج من الحلقة الحالية وننتظر الضغطة التالية
                 else:
                     # انتهت ألبومات هذا النوع
                     if media_type == "video":
