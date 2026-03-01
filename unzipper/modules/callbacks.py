@@ -12,7 +12,7 @@ from email.policy import default
 from fnmatch import fnmatch
 from pyrogram import Client
 from pyrogram.errors import ReplyMarkupTooLong
-from pyrogram.types import CallbackQuery, InputMediaPhoto, InputMediaVideo, InlineKeyboardButton, InlineKeyboardMarkup # <--- إضافة جديدة
+from pyrogram.types import CallbackQuery, InputMediaPhoto, InputMediaVideo, InlineKeyboardButton, InlineKeyboardMarkup
 from time import time
 from urllib.parse import unquote
 from .bot_data import Buttons, ERROR_MSGS, Messages
@@ -56,89 +56,33 @@ split_file_pattern = r"\.(?:z\d+|r\d{2})$"
 rar_file_pattern = r"\.part\d+\.rar$"
 telegram_url_pattern = r"(?:http[s]?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]+)\/(\d+)"
 
-# --- تخزين مؤقت للحالة ---
-album_state = {} # {user_id: {'files': [...], 'index': 0, 'message_id': msg_id}}
-
-async def download(url, path):
-    try:
-        async with ClientSession() as session, session.get(
-            url, timeout=None, allow_redirects=True
-        ) as resp, openfile(path, mode="wb") as file:
-            async for chunk in resp.content.iter_chunked(Config.CHUNK_SIZE):
-                await file.write(chunk)
-    except InvalidURL:
-        LOGGER.error(Messages.INVALID_URL)
-    except Exception:
-        LOGGER.error(Messages.ERR_DL.format(url))
-
-
-async def download_with_progress(url, path, message, unzip_bot):
-    try:
-        async with ClientSession() as session, session.get(
-            url, timeout=None, allow_redirects=True
-        ) as resp:
-            total_size = int(resp.headers.get("Content-Length", 0))
-            current_size = 0
-            start_time = time()
-            async with openfile(path, mode="wb") as file:
-                async for chunk in resp.content.iter_chunked(Config.CHUNK_SIZE):
-                    if message.from_user is not None and await get_cancel_task(
-                        message.from_user.id
-                    ):
-                        await message.edit(text=Messages.DL_STOPPED)
-                        await del_cancel_task(message.from_user.id)
-                        return False
-                    await file.write(chunk)
-                    current_size += len(chunk)
-                    await progress_for_pyrogram(
-                        current_size,
-                        total_size,
-                        Messages.DL_URL.format(url),
-                        message,
-                        start_time,
-                        unzip_bot,
-                    )
-    except Exception:
-        LOGGER.error(Messages.ERR_DL.format(url))
-
-
-def get_zip_http(url):
-    rzf = unzip_http.RemoteZipFile(url)
-    paths = rzf.namelist()
-    return rzf, paths
-
-
-async def async_generator(iterable):
-    for item in iterable:
-        yield item
-
 # --- تعديل جديد ---
 def chunk_list(lst, n):
     """تقسيم القائمة إلى مجموعات بحجم n"""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-async def send_as_album(unzip_bot, chat_id, file_paths, log_msg=None):
-    """إرسال ملفات متعددة كألبوم"""
+async def send_album_batch(unzip_bot, chat_id, batch, log_msg=None):
+    """إرسال مجموعة من الملفات كأحد ألبومات"""
     media_group = []
-    for file_path in file_paths:
+    for file_path in batch:
         if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
             media_group.append(InputMediaPhoto(media=file_path))
         elif file_path.lower().endswith(('.mp4', '.mov', '.mkv', '.avi', '.gif')):
             media_group.append(InputMediaVideo(media=file_path))
         # لا تُضف ملفات أخرى إلى الألبوم
     
-    if len(media_group) >= 2:  # الألبوم يتطلب ملفين على الأقل
+    if len(media_group) >= 1:  # الألبوم يمكن أن يحتوي على ملف واحد فقط
         # أول عنصر يحمل التسمية التوضيحية
         if log_msg:
             media_group[0].caption = f"📦 Extracted by @UnzipBot\n📊 Files: {len(media_group)}"
         else:
             media_group[0].caption = f"📦 Extracted by @UnzipBot\n📊 Files: {len(media_group)}"
         try:
-            sent_msg = await unzip_bot.send_media_group(chat_id=chat_id, media=media_group)
+            await unzip_bot.send_media_group(chat_id=chat_id, media=media_group)
             if log_msg:
                 await log_msg.reply(f"✅ Sent {len(media_group)} files as album.")
-            return True # <--- نجاح
+            return True
         except Exception as e:
             LOGGER.error(f"Failed to send album: {e}")
             # إذا فشل الألبوم، أعد إرسال الملفات فرديًا
@@ -150,10 +94,8 @@ async def send_as_album(unzip_bot, chat_id, file_paths, log_msg=None):
                         await unzip_bot.send_video(chat_id, media_item.media)
                 except Exception as e2:
                     LOGGER.error(f"Failed to send individual file: {e2}")
-            return False # <--- فشل
-    else:
-        # إذا لم يكن هناك ما يكفي للألبوم، لا نرسل شيئًا
-        return False # <--- لا ألبوم
+            return False
+    return False
 
 # --- نهاية التعديل الجديد ---
 
@@ -949,7 +891,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                         await answer_query(
                             query, Messages.EXT_FAILED_TXT, unzip_client=unzip_bot
                         )
-                        await archive_msg.reply(Messages.EXT_FAILED_TXT)
                         shutil.rmtree(ext_files_dir)
                         LOGGER.error(Messages.FATAL_ERROR)
                         await del_ongoing_task(user_id)
@@ -1141,7 +1082,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 text=Messages.NO_FILE_LEFT, reply_markup=Buttons.RATE_ME
             )
             return
-
+        
         # --- التعديل الجديد ---
         # جمع أنواع الملفات
         image_files = []
@@ -1150,197 +1091,253 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
         async_paths = async_generator(paths)
         async for file in async_paths:
-            if urled:
-                # إذا كان من رابط، لا نستخدم الحجم
-                fsize = Config.TG_MAX_SIZE + 1
+            if not urled: # فقط إذا لم يكن من رابط
+                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    image_files.append(file)
+                elif file.lower().endswith(('.mp4', '.mov', '.mkv', '.avi', '.gif')):
+                    video_files.append(file)
+                else:
+                    other_files.append(file)
             else:
-                fsize = await get_size(file)
+                # لا نستخدم الحجم من رابط، فقط نرتب حسب الامتداد
+                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    image_files.append(file)
+                elif file.lower().endswith(('.mp4', '.mov', '.mkv', '.avi', '.gif')):
+                    video_files.append(file)
+                else:
+                    other_files.append(file)
 
-            if file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                image_files.append(file)
-            elif file.lower().endswith(('.mp4', '.mov', '.mkv', '.avi', '.gif')):
-                video_files.append(file)
-            else:
-                other_files.append(file)
+        # حساب الإحصائيات
+        total_images = len(image_files)
+        total_videos = len(video_files)
+        total_others = len(other_files)
 
-        # حفظ الحالة للألبومات
-        all_albums = []
-        if image_files:
-            all_albums.extend(list(chunk_list(image_files, 10)))
-        if video_files:
-            all_albums.extend(list(chunk_list(video_files, 10)))
+        # تقسيم إلى ألبومات (10 كحد أقصى لكل)
+        video_albums = list(chunk_list(video_files, 10))
+        image_albums = list(chunk_list(image_files, 10))
 
-        if all_albums:
-            # إرسال أول ألبوم
-            first_album = all_albums[0]
-            success = await send_as_album(unzip_bot, user_id, first_album, log_msg)
-            if success:
-                sent_files += len(first_album)
-                # حفظ الحالة: باقي الألبومات
-                album_state[user_id] = {
-                    'albums': all_albums[1:], # باقي الألبومات
-                    'other_files': other_files,
-                    'message_id': query.message.id,
-                    'sent_files': sent_files
-                }
-                # إرسال الأزرار
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Next Album 🎞️", callback_data=f"next_album|{user_id}")],
-                    [InlineKeyboardButton("Cancel All 🚫", callback_data="cancel_dis")]
-                ])
-                await query.message.edit(Messages.SEND_ALL_FILES, reply_markup=keyboard)
-                return # نوقف التنفيذ هنا لانتظار الزر
+        total_video_albums = len(video_albums)
+        total_image_albums = len(image_albums)
 
-        # إذا لم تكن هناك ألبومات، نرسل الملفات الأخرى فرديًا
-        for file in other_files:
-            if urled:
-                file = spl_data[4].open(file)
-                fsize = Config.TG_MAX_SIZE + 1
-                # security as we can't always retrieve the file size from URL
-            else:
-                fsize = await get_size(file)
-            split = False
-            if fsize <= Config.TG_MAX_SIZE:
-                await send_file(
-                    unzip_bot=unzip_bot,
-                    c_id=spl_data[2],
-                    doc_f=file,
-                    query=query,
-                    full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
-                    log_msg=log_msg,
-                    split=False,
-                )
-            else:
-                split = True
-            if split:
-                fname = file.split("/")[-1]
-                smessage = await unzip_bot.send_message(
-                    chat_id=user_id, text=Messages.SPLITTING.format(fname)
-                )
-                splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
-                os.makedirs(splitteddir, exist_ok=True)
-                ooutput = f"{splitteddir}/{fname}"
-                splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
-                LOGGER.info(splittedfiles)
-                if not splittedfiles:
-                    try:
-                        shutil.rmtree(splitteddir)
-                    except:
-                        pass
-                    await del_ongoing_task(user_id)
-                    await smessage.edit(Messages.ERR_SPLIT)
-                    return
-                await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
-                async_splittedfiles = async_generator(splittedfiles)
-                async for s_file in async_splittedfiles:
-                    sent_files += 1
-                    await send_file(
-                        unzip_bot=unzip_bot,
-                        c_id=user_id,
-                        doc_f=s_file,
-                        query=query,
-                        full_path=splitteddir,
-                        log_msg=log_msg,
-                        split=True,
+        # عرض الإحصائيات
+        stats_text = f"""
+📊 **Upload Statistics:**
+
+🎬 **Videos:** {total_videos} in {total_video_albums} albums
+🖼️ **Images:** {total_images} in {total_image_albums} albums
+📄 **Others:** {total_others} files
+
+Starting to send videos first...
+        """
+        await query.message.edit(stats_text)
+        # الانتظار قليلاً قبل البدء
+        await asyncio.sleep(2)
+
+        # دالة لحساب عدد الملفات المرسلة
+        sent_files = 0
+
+        # دالة لإرسال الألبومات تدريجيًا
+        async def send_album_batches(albums_list, media_type="video"):
+            current_index = 0
+            total_albums = len(albums_list)
+            while current_index < total_albums:
+                album_batch = albums_list[current_index]
+                success = await send_album_batch(unzip_bot, user_id, album_batch, log_msg)
+                if success:
+                    sent_files += len(album_batch)
+                
+                # حساب الاسم الصحيح للنوع
+                type_name = "Videos" if media_type == "video" else "Images"
+                # إعداد الزر التالي أو إنهاء الإرسال
+                if current_index + 1 < total_albums:
+                    # زر "Next Album"
+                    next_button = InlineKeyboardButton(f"Next {type_name} Album 📀", callback_data=f"next_album|{media_type}|{current_index + 1}|{query.data}")
+                    cancel_button = InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")
+                    keyboard = InlineKeyboardMarkup([[next_button, cancel_button]])
+                    await unzip_bot.send_message(
+                        chat_id=user_id,
+                        text=f"Sent {type_name} Album #{current_index + 1}. Press Next to continue.",
+                        reply_markup=keyboard
                     )
-            sent_files += 1
+                    # الانتظار لرد المستخدم
+                    try:
+                        # نحتاج إلى معرفة رد المستخدم التالي
+                        # هذا يتطلب تغيير في هيكلية الكود لجعله دالة مستقلة
+                        # أو استخدام نظام إلغاء داخلي
+                        # للتبسيط، سنستخدم await query.wait_for_callback
+                        # هذا يتطلب تغييرات في Pyrogram client
+                        # لذا نستخدم طريقة بديلة: نقوم بإرسال رسالة وننتظر حتى يضغط المستخدم زرًا
+                        # نفترض أن الزر سيؤدي إلى استدعاء هذه الدالة مرة أخرى مع مؤشر جديد
+                        # لن نستخدم await هنا، بل نعيد التحكم للدالة الرئيسية
+                        # ونضيف دالة جديدة للتعامل مع next_album
+                        break # نخرج من الحلقة الحالية وننتظر الضغطة التالية
+                    except asyncio.CancelledError:
+                        break
+                else:
+                    # انتهت ألبومات هذا النوع
+                    if media_type == "video":
+                        # ننتقل إلى صور الألبومات
+                        if total_image_albums > 0:
+                            await unzip_bot.send_message(
+                                chat_id=user_id,
+                                text="Now starting to send image albums...",
+                            )
+                            await send_album_batches(image_albums, "image")
+                        else:
+                            # لا توجد صور، نرسل الملفات الأخرى
+                            for file in other_files:
+                                sent_files += 1
+                                fsize = Config.TG_MAX_SIZE + 1 if urled else await get_size(file)
+                                split = False
+                                if fsize <= Config.TG_MAX_SIZE:
+                                    await send_file(
+                                        unzip_bot=unzip_bot,
+                                        c_id=spl_data[2],
+                                        doc_f=file,
+                                        query=query,
+                                        full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
+                                        log_msg=log_msg,
+                                        split=False,
+                                    )
+                                else:
+                                    split = True
+                                if split:
+                                    fname = file.split("/")[-1]
+                                    smessage = await unzip_bot.send_message(
+                                        chat_id=user_id, text=Messages.SPLITTING.format(fname)
+                                    )
+                                    splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
+                                    os.makedirs(splitteddir, exist_ok=True)
+                                    ooutput = f"{splitteddir}/{fname}"
+                                    splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
+                                    LOGGER.info(splittedfiles)
+                                    if not splittedfiles:
+                                        try:
+                                            shutil.rmtree(splitteddir)
+                                        except:
+                                            pass
+                                        await del_ongoing_task(user_id)
+                                        await smessage.edit(Messages.ERR_SPLIT)
+                                        return
+                                    await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
+                                    async_splittedfiles = async_generator(splittedfiles)
+                                    async for s_file in async_splittedfiles:
+                                        sent_files += 1
+                                        await send_file(
+                                            unzip_bot=unzip_bot,
+                                            c_id=user_id,
+                                            doc_f=s_file,
+                                            query=query,
+                                            full_path=splitteddir,
+                                            log_msg=log_msg,
+                                            split=True,
+                                        )
+                            try:
+                                await unzip_bot.send_message(
+                                    chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                                )
+                                await query.message.edit(
+                                    text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                                )
+                            except:
+                                pass
+                            await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
+                            await update_uploaded(user_id, upload_count=sent_files)
+                            await del_ongoing_task(user_id)
+                            try:
+                                shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
+                            except Exception as e:
+                                await query.message.edit(Messages.ERROR_TXT.format(e))
+                                await archive_msg.reply(Messages.ERROR_TXT.format(e))
+                    else: # media_type == "image"
+                        # انتهت الصور، نرسل الملفات الأخرى
+                        for file in other_files:
+                            sent_files += 1
+                            fsize = Config.TG_MAX_SIZE + 1 if urled else await get_size(file)
+                            split = False
+                            if fsize <= Config.TG_MAX_SIZE:
+                                await send_file(
+                                    unzip_bot=unzip_bot,
+                                    c_id=spl_data[2],
+                                    doc_f=file,
+                                    query=query,
+                                    full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
+                                    log_msg=log_msg,
+                                    split=False,
+                                )
+                            else:
+                                split = True
+                            if split:
+                                fname = file.split("/")[-1]
+                                smessage = await unzip_bot.send_message(
+                                    chat_id=user_id, text=Messages.SPLITTING.format(fname)
+                                )
+                                splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
+                                os.makedirs(splitteddir, exist_ok=True)
+                                ooutput = f"{splitteddir}/{fname}"
+                                splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
+                                LOGGER.info(splittedfiles)
+                                if not splittedfiles:
+                                    try:
+                                        shutil.rmtree(splitteddir)
+                                    except:
+                                        pass
+                                    await del_ongoing_task(user_id)
+                                    await smessage.edit(Messages.ERR_SPLIT)
+                                    return
+                                await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
+                                async_splittedfiles = async_generator(splittedfiles)
+                                async for s_file in async_splittedfiles:
+                                    sent_files += 1
+                                    await send_file(
+                                        unzip_bot=unzip_bot,
+                                        c_id=user_id,
+                                        doc_f=s_file,
+                                        query=query,
+                                        full_path=splitteddir,
+                                        log_msg=log_msg,
+                                        split=True,
+                                    )
+                        try:
+                            await unzip_bot.send_message(
+                                chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                            )
+                            await query.message.edit(
+                                text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                            )
+                        except:
+                            pass
+                        await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
+                        await update_uploaded(user_id, upload_count=sent_files)
+                        await del_ongoing_task(user_id)
+                        try:
+                            shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
+                        except Exception as e:
+                            await query.message.edit(Messages.ERROR_TXT.format(e))
+                            await archive_msg.reply(Messages.ERROR_TXT.format(e))
+                    break # خروج من الحلقة
+                current_index += 1
 
-        try:
-            await unzip_bot.send_message(
-                chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
-            )
-            await query.message.edit(
-                text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
-            )
-        except:
-            pass
-        await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
-        await update_uploaded(user_id, upload_count=sent_files)
-        await del_ongoing_task(user_id)
-        try:
-            shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
-        except Exception as e:
-            await query.message.edit(Messages.ERROR_TXT.format(e))
-            await archive_msg.reply(Messages.ERROR_TXT.format(e))
-        # --- نهاية التعديل الجديد ---
-        
-    elif query.data == "cancel_dis":
-        uid = query.from_user.id
-        await del_ongoing_task(uid)
-        await del_merge_task(uid)
-        try:
-            await query.message.edit(
-                Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED)
-            )
-            shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{uid}")
-            # تحديث عدد الملفات المرسلة من الحالة المؤقتة إذا لزم الأمر
-            if uid in album_state:
-                sent_files = album_state[uid]['sent_files']
-                del album_state[uid]
-            await update_uploaded(user_id=uid, upload_count=sent_files)
-            try:
-                await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
-            except:
-                return
-        except:
-            await unzip_bot.send_message(
-                chat_id=uid,
-                text=Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED),
-            )
-            return
-    elif query.data == "nobully":
-        await query.message.edit(Messages.CANCELLED)
-
-
-# --- دالة جديدة للتعامل مع Next Album ---
-@unzipperbot.on_callback_query(filters=lambda _, q: q.data.startswith("next_album"))
-async def next_album_cb(unzip_bot: Client, query: CallbackQuery):
-    user_id = query.from_user.id
-    data_parts = query.data.split("|")
-    if len(data_parts) != 2 or int(data_parts[1]) != user_id:
-        await query.answer("Not for you!", show_alert=True)
-        return
-
-    state = album_state.get(user_id)
-    if not state:
-        await query.answer("No more albums to send.", show_alert=True)
-        return
-
-    remaining_albums = state['albums']
-    other_files = state['other_files']
-    sent_files = state['sent_files']
-
-    if remaining_albums:
-        next_album = remaining_albums[0]
-        success = await send_as_album(unzip_bot, user_id, next_album, log_msg)
-        if success:
-            sent_files += len(next_album)
-            # تحديث الحالة
-            album_state[user_id] = {
-                'albums': remaining_albums[1:],
-                'other_files': other_files,
-                'message_id': query.message.id,
-                'sent_files': sent_files
-            }
-            # عرض الزر التالي
-            if remaining_albums[1:]: # ما زال في ألبومات
-                 keyboard = InlineKeyboardMarkup([
-                     [InlineKeyboardButton("Next Album 🎞️", callback_data=f"next_album|{user_id}")],
-                     [InlineKeyboardButton("Cancel All 🚫", callback_data="cancel_dis")]
-                 ])
-                 await query.message.edit(Messages.SEND_ALL_FILES, reply_markup=keyboard)
-            else: # انتهت الألبومات، نرسل الملفات الأخرى
+        # بدء إرسال ألبومات الفيديو أولاً
+        if total_video_albums > 0:
+            await send_album_batches(video_albums, "video")
+        else:
+            # لا توجد فيديوهات، ننتقل إلى الصور مباشرة
+            if total_image_albums > 0:
+                await send_album_batches(image_albums, "image")
+            else:
+                # لا توجد صور أو فيديوهات، نرسل الملفات الأخرى فقط
                 for file in other_files:
-                    # نفس منطق الإرسال الفردي من ext_a
-                    fsize = await get_size(file)
+                    sent_files += 1
+                    fsize = Config.TG_MAX_SIZE + 1 if urled else await get_size(file)
                     split = False
                     if fsize <= Config.TG_MAX_SIZE:
                         await send_file(
                             unzip_bot=unzip_bot,
-                            c_id=user_id,
+                            c_id=spl_data[2],
                             doc_f=file,
-                            query=None, # query غير متوفر هنا
-                            full_path=os.path.dirname(other_files[0]),
+                            query=query,
+                            full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
                             log_msg=log_msg,
                             split=False,
                         )
@@ -1372,132 +1369,339 @@ async def next_album_cb(unzip_bot: Client, query: CallbackQuery):
                                 unzip_bot=unzip_bot,
                                 c_id=user_id,
                                 doc_f=s_file,
-                                query=None,
+                                query=query,
                                 full_path=splitteddir,
                                 log_msg=log_msg,
                                 split=True,
                             )
-                    sent_files += 1
-
                 try:
                     await unzip_bot.send_message(
                         chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
                     )
-                    # محاولة تعديل آخر رسالة من ext_a (قد تكون محذوفة)
-                    try:
-                         await query.message.edit(
-                             text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
-                         )
-                    except:
-                        pass
+                    await query.message.edit(
+                        text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                    )
                 except:
                     pass
                 await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
                 await update_uploaded(user_id, upload_count=sent_files)
                 await del_ongoing_task(user_id)
                 try:
-                    shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{query.from_user.id}")
+                    shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
                 except Exception as e:
-                    LOGGER.error(e)
-                # مسح الحالة
-                del album_state[user_id]
+                    await query.message.edit(Messages.ERROR_TXT.format(e))
+                    await archive_msg.reply(Messages.ERROR_TXT.format(e))
+        # --- نهاية التعديل الجديد ---
+        
+    elif query.data.startswith("next_album"):
+        # مثال: "next_album|video|2|ext_a|..."
+        parts = query.data.split("|")
+        media_type = parts[1]
+        index = int(parts[2])
+        original_query_data = "|".join(parts[3:])
+        # إعادة بناء spl_data من original_query_data
+        spl_data = original_query_data.split("|")
+        user_id = query.from_user.id
+        file_path = f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}/extracted"
+        try:
+            urled = spl_data[4] if isinstance(spl_data[3], bool) else False
+        except:
+            urled = False
+        if urled:
+            paths = spl_data[4].namelist()
+        else:
+            paths = await get_files(path=file_path)
 
-        else: # فشل إرسال الألبوم
-             # محاولة إرسال الملفات فرديًا
-             for file in next_album:
-                 await send_file(
-                     unzip_bot=unzip_bot,
-                     c_id=user_id,
-                     doc_f=file,
-                     query=None,
-                     full_path=os.path.dirname(next_album[0]),
-                     log_msg=log_msg,
-                     split=False,
-                 )
-                 sent_files += 1
-             # تحديث الحالة بعد الإرسال الفردي
-             album_state[user_id] = {
-                 'albums': remaining_albums[1:],
-                 'other_files': other_files,
-                 'message_id': query.message.id,
-                 'sent_files': sent_files
-             }
-             # استمرار عرض الزر
-             if remaining_albums[1:]:
-                  keyboard = InlineKeyboardMarkup([
-                      [InlineKeyboardButton("Next Album 🎞️", callback_data=f"next_album|{user_id}")],
-                      [InlineKeyboardButton("Cancel All 🚫", callback_data="cancel_dis")]
-                  ])
-                  await query.message.edit(Messages.SEND_ALL_FILES, reply_markup=keyboard)
-    else: # لا توجد ألبومات متبقية، نرسل الملفات الأخرى
-         for file in other_files:
-             # نفس منطق الإرسال الفردي من ext_a
-             fsize = await get_size(file)
-             split = False
-             if fsize <= Config.TG_MAX_SIZE:
-                 await send_file(
-                     unzip_bot=unzip_bot,
-                     c_id=user_id,
-                     doc_f=file,
-                     query=None,
-                     full_path=os.path.dirname(other_files[0]),
-                     log_msg=log_msg,
-                     split=False,
-                 )
-             else:
-                 split = True
-             if split:
-                 fname = file.split("/")[-1]
-                 smessage = await unzip_bot.send_message(
-                     chat_id=user_id, text=Messages.SPLITTING.format(fname)
-                 )
-                 splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
-                 os.makedirs(splitteddir, exist_ok=True)
-                 ooutput = f"{splitteddir}/{fname}"
-                 splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
-                 LOGGER.info(splittedfiles)
-                 if not splittedfiles:
-                     try:
-                         shutil.rmtree(splitteddir)
-                     except:
-                         pass
-                     await del_ongoing_task(user_id)
-                     await smessage.edit(Messages.ERR_SPLIT)
-                     return
-                 await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
-                 async_splittedfiles = async_generator(splittedfiles)
-                 async for s_file in async_splittedfiles:
-                     sent_files += 1
-                     await send_file(
-                         unzip_bot=unzip_bot,
-                         c_id=user_id,
-                         doc_f=s_file,
-                         query=None,
-                         full_path=splitteddir,
-                         log_msg=log_msg,
-                         split=True,
-                     )
-             sent_files += 1
+        # إعادة جمع الملفات كما فعلنا في ext_a
+        image_files = []
+        video_files = []
+        other_files = []
 
-         try:
-             await unzip_bot.send_message(
-                 chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
-             )
-             # محاولة تعديل آخر رسالة من ext_a (قد تكون محذوفة)
-             try:
-                  await query.message.edit(
-                      text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
-                  )
-             except:
-                 pass
-         except:
-             pass
-         await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
-         await update_uploaded(user_id, upload_count=sent_files)
-         await del_ongoing_task(user_id)
-         try:
-             shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{query.from_user.id}")
-         except Exception as e:
-             LOGGER.error(e)
-         # مسح الحالة
-         del album_state[user_id]
+        async_paths = async_generator(paths)
+        async for file in async_paths:
+            if not urled:
+                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    image_files.append(file)
+                elif file.lower().endswith(('.mp4', '.mov', '.mkv', '.avi', '.gif')):
+                    video_files.append(file)
+                else:
+                    other_files.append(file)
+            else:
+                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    image_files.append(file)
+                elif file.lower().endswith(('.mp4', '.mov', '.mkv', '.avi', '.gif')):
+                    video_files.append(file)
+                else:
+                    other_files.append(file)
+
+        # تقسيم إلى ألبومات
+        video_albums = list(chunk_list(video_files, 10))
+        image_albums = list(chunk_list(image_files, 10))
+
+        # حسب النوع، نختار القائمة الصحيحة
+        if media_type == "video":
+            albums_list = video_albums
+        else: # image
+            albums_list = image_albums
+
+        # التحقق من المؤشر
+        if index < len(albums_list):
+            album_batch = albums_list[index]
+            success = await send_album_batch(unzip_bot, user_id, album_batch, log_msg)
+            if success:
+                sent_files = len(album_batch) # هذا مجرد تقدير، لا نحتاجه في هذه الطريقة
+            total_albums = len(albums_list)
+            type_name = "Videos" if media_type == "video" else "Images"
+            if index + 1 < total_albums:
+                # زر "Next Album"
+                next_button = InlineKeyboardButton(f"Next {type_name} Album 📀", callback_data=f"next_album|{media_type}|{index + 1}|{original_query_data}")
+                cancel_button = InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")
+                keyboard = InlineKeyboardMarkup([[next_button, cancel_button]])
+                await unzip_bot.send_message(
+                    chat_id=user_id,
+                    text=f"Sent {type_name} Album #{index + 1}. Press Next to continue.",
+                    reply_markup=keyboard
+                )
+            else:
+                # انتهى هذا النوع
+                if media_type == "video":
+                    # ننتقل إلى صور الألبومات
+                    total_image_albums = len(image_albums)
+                    if total_image_albums > 0:
+                        await unzip_bot.send_message(
+                            chat_id=user_id,
+                            text="Now starting to send image albums...",
+                        )
+                        # نبدأ من الألبوم الأول من الصور
+                        if len(image_albums) > 0:
+                            first_image_batch = image_albums[0]
+                            success = await send_album_batch(unzip_bot, user_id, first_image_batch, log_msg)
+                            if success:
+                                sent_files = len(first_image_batch)
+                            if len(image_albums) > 1:
+                                # زر "Next Album" لصور
+                                next_img_button = InlineKeyboardButton("Next Image Album 📀", callback_data=f"next_album|image|1|{original_query_data}")
+                                cancel_button = InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")
+                                keyboard = InlineKeyboardMarkup([[next_img_button, cancel_button]])
+                                await unzip_bot.send_message(
+                                    chat_id=user_id,
+                                    text=f"Sent Image Album #1. Press Next to continue.",
+                                    reply_markup=keyboard
+                                )
+                            else:
+                                # انتهت صور الألبومات، نرسل الملفات الأخرى
+                                for file in other_files:
+                                    sent_files += 1
+                                    fsize = Config.TG_MAX_SIZE + 1 if urled else await get_size(file)
+                                    split = False
+                                    if fsize <= Config.TG_MAX_SIZE:
+                                        await send_file(
+                                            unzip_bot=unzip_bot,
+                                            c_id=spl_data[2],
+                                            doc_f=file,
+                                            query=query,
+                                            full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
+                                            log_msg=log_msg,
+                                            split=False,
+                                        )
+                                    else:
+                                        split = True
+                                    if split:
+                                        fname = file.split("/")[-1]
+                                        smessage = await unzip_bot.send_message(
+                                            chat_id=user_id, text=Messages.SPLITTING.format(fname)
+                                        )
+                                        splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
+                                        os.makedirs(splitteddir, exist_ok=True)
+                                        ooutput = f"{splitteddir}/{fname}"
+                                        splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
+                                        LOGGER.info(splittedfiles)
+                                        if not splittedfiles:
+                                            try:
+                                                shutil.rmtree(splitteddir)
+                                            except:
+                                                pass
+                                            await del_ongoing_task(user_id)
+                                            await smessage.edit(Messages.ERR_SPLIT)
+                                            return
+                                        await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
+                                        async_splittedfiles = async_generator(splittedfiles)
+                                        async for s_file in async_splittedfiles:
+                                            sent_files += 1
+                                            await send_file(
+                                                unzip_bot=unzip_bot,
+                                                c_id=user_id,
+                                                doc_f=s_file,
+                                                query=query,
+                                                full_path=splitteddir,
+                                                log_msg=log_msg,
+                                                split=True,
+                                            )
+                                try:
+                                    await unzip_bot.send_message(
+                                        chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                                    )
+                                    await query.message.edit(
+                                        text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                                    )
+                                except:
+                                    pass
+                                await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
+                                await update_uploaded(user_id, upload_count=sent_files)
+                                await del_ongoing_task(user_id)
+                                try:
+                                    shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
+                                except Exception as e:
+                                    await query.message.edit(Messages.ERROR_TXT.format(e))
+                                    await archive_msg.reply(Messages.ERROR_TXT.format(e))
+                    else:
+                        # لا توجد صور، نرسل الملفات الأخرى
+                        for file in other_files:
+                            sent_files += 1
+                            fsize = Config.TG_MAX_SIZE + 1 if urled else await get_size(file)
+                            split = False
+                            if fsize <= Config.TG_MAX_SIZE:
+                                await send_file(
+                                    unzip_bot=unzip_bot,
+                                    c_id=spl_data[2],
+                                    doc_f=file,
+                                    query=query,
+                                    full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
+                                    log_msg=log_msg,
+                                    split=False,
+                                )
+                            else:
+                                split = True
+                            if split:
+                                fname = file.split("/")[-1]
+                                smessage = await unzip_bot.send_message(
+                                    chat_id=user_id, text=Messages.SPLITTING.format(fname)
+                                )
+                                splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
+                                os.makedirs(splitteddir, exist_ok=True)
+                                ooutput = f"{splitteddir}/{fname}"
+                                splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
+                                LOGGER.info(splittedfiles)
+                                if not splittedfiles:
+                                    try:
+                                        shutil.rmtree(splitteddir)
+                                    except:
+                                        pass
+                                    await del_ongoing_task(user_id)
+                                    await smessage.edit(Messages.ERR_SPLIT)
+                                    return
+                                await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
+                                async_splittedfiles = async_generator(splittedfiles)
+                                async for s_file in async_splittedfiles:
+                                    sent_files += 1
+                                    await send_file(
+                                        unzip_bot=unzip_bot,
+                                        c_id=user_id,
+                                        doc_f=s_file,
+                                        query=query,
+                                        full_path=splitteddir,
+                                        log_msg=log_msg,
+                                        split=True,
+                                    )
+                        try:
+                            await unzip_bot.send_message(
+                                chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                            )
+                            await query.message.edit(
+                                text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                            )
+                        except:
+                            pass
+                        await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
+                        await update_uploaded(user_id, upload_count=sent_files)
+                        await del_ongoing_task(user_id)
+                        try:
+                            shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
+                        except Exception as e:
+                            await query.message.edit(Messages.ERROR_TXT.format(e))
+                            await archive_msg.reply(Messages.ERROR_TXT.format(e))
+                else: # media_type == "image"
+                    # انتهت صور الألبومات، نرسل الملفات الأخرى
+                    for file in other_files:
+                        sent_files += 1
+                        fsize = Config.TG_MAX_SIZE + 1 if urled else await get_size(file)
+                        split = False
+                        if fsize <= Config.TG_MAX_SIZE:
+                            await send_file(
+                                unzip_bot=unzip_bot,
+                                c_id=spl_data[2],
+                                doc_f=file,
+                                query=query,
+                                full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
+                                log_msg=log_msg,
+                                split=False,
+                            )
+                        else:
+                            split = True
+                        if split:
+                            fname = file.split("/")[-1]
+                            smessage = await unzip_bot.send_message(
+                                chat_id=user_id, text=Messages.SPLITTING.format(fname)
+                            )
+                            splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
+                            os.makedirs(splitteddir, exist_ok=True)
+                            ooutput = f"{splitteddir}/{fname}"
+                            splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
+                            LOGGER.info(splittedfiles)
+                            if not splittedfiles:
+                                try:
+                                    shutil.rmtree(splitteddir)
+                                except:
+                                    pass
+                                await del_ongoing_task(user_id)
+                                await smessage.edit(Messages.ERR_SPLIT)
+                                return
+                            await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
+                            async_splittedfiles = async_generator(splittedfiles)
+                            async for s_file in async_splittedfiles:
+                                sent_files += 1
+                                await send_file(
+                                    unzip_bot=unzip_bot,
+                                    c_id=user_id,
+                                    doc_f=s_file,
+                                    query=query,
+                                    full_path=splitteddir,
+                                    log_msg=log_msg,
+                                    split=True,
+                                )
+                    try:
+                        await unzip_bot.send_message(
+                            chat_id=user_id, text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                        )
+                        await query.message.edit(
+                            text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+                        )
+                    except:
+                        pass
+                    await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
+                    await update_uploaded(user_id, upload_count=sent_files)
+                    await del_ongoing_task(user_id)
+                    try:
+                        shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
+                    except Exception as e:
+                        await query.message.edit(Messages.ERROR_TXT.format(e))
+                        await archive_msg.reply(Messages.ERROR_TXT.format(e))
+
+    elif query.data == "cancel_dis":
+        uid = query.from_user.id
+        await del_ongoing_task(uid)
+        await del_merge_task(uid)
+        try:
+            await query.message.edit(
+                Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED)
+            )
+            shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{uid}")
+            # لا نحتاج إلى update_uploaded أو log_msg هنا لأن العملية تم إلغاؤها
+        except:
+            await unzip_bot.send_message(
+                chat_id=uid,
+                text=Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED),
+            )
+            return
+    elif query.data == "nobully":
+        await query.message.edit(Messages.CANCELLED)
