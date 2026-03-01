@@ -122,23 +122,20 @@ async def async_generator(iterable):
 # ===== NEW ALBUM & MEDIA HELPER FUNCS =====
 # ==========================================
 def chunk_list(lst, n):
-    """تقسيم القائمة إلى أجزاء بحجم محدد"""
     return [lst[i:i + n] for i in range(0, len(lst), n)]
 
 
 async def send_album_batch(unzip_bot, chat_id, batch, caption_msg=""):
-    """إرسال مجموعة من الملفات كألبوم وسائط"""
     media_group = []
     for i, file_path in enumerate(batch):
         ext = file_path.lower().split('.')[-1]
-        caption = caption_msg if i == 0 else "" # التسمية التوضيحية في أول ملف فقط
+        caption = caption_msg if i == 0 else ""
         
         if ext in ['mp4', 'mov', 'mkv', 'avi']:
             media_group.append(InputMediaVideo(media=file_path, caption=caption))
         elif ext in ['jpg', 'jpeg', 'png', 'webp']:
             media_group.append(InputMediaPhoto(media=file_path, caption=caption))
         elif ext == 'gif':
-            # تلجرام يفضل التعامل مع GIF كفيديو داخل الألبومات
             media_group.append(InputMediaVideo(media=file_path, caption=caption))
             
     try:
@@ -167,7 +164,7 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         except: pass
         return
 
-    # الفرز والتصنيف
+    # فرز الملفات لإنشاء الألبومات
     vids, imgs, others = [], [], []
     for p in paths:
         ext = p.lower().split('.')[-1]
@@ -179,13 +176,10 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
     img_chunks = chunk_list(imgs, 10)
     index = int(index)
 
-    # ==========================
-    # 1. معالجة الفيديوهات
-    # ==========================
+    # 1. Video Albums
     if current_type == "video" and index < len(vid_chunks):
         batch = vid_chunks[index]
-        try: await query.message.edit(f"⏳ Sending Video Album ({index + 1}/{len(vid_chunks)}) ...")
-        except: pass
+        msg = await unzip_bot.send_message(chat_id=int(c_id), text=f"⚡️ Sending Video Album ({index + 1}/{len(vid_chunks)}) ...")
         
         success = await send_album_batch(unzip_bot, int(c_id), batch, f"📁 Video Album {index+1} / {len(vid_chunks)}")
         
@@ -195,7 +189,7 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
 
         next_idx = index + 1
         if next_idx < len(vid_chunks):
-            nxt_tp, btn_text = "video", f"Next Video Album ({next_idx + 1}/{len(vid_chunks)}) 🎞"
+            nxt_tp, btn_text = "video", f"Next Video Album ({next_idx + 1}) ⏭"
         elif imgs:
             nxt_tp, next_idx, btn_text = "image", 0, f"Start Image Albums (Total: {len(img_chunks)}) 🖼"
         elif others:
@@ -203,28 +197,25 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         else:
             nxt_tp, next_idx, btn_text = "done", 0, "Finish Sequence ✅"
 
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_id}|{c_id}|{nxt_tp}|{next_idx}")],
-            [InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")]
-        ])
+        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_id}|{c_id}|{nxt_tp}|{next_idx}")]]
+        if len(vid_chunks) > 1 and current_type == "video":
+            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_id}|{c_id}|video|{len(vid_chunks)}")])
+        buttons.append([InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")])
+        markup = InlineKeyboardMarkup(buttons)
         
-        # ---> التغيير الذكي: حذف الرسالة القديمة، وإرسال أزرار جديدة في الأسفل
-        try: await query.message.delete() 
+        try: await msg.delete()
         except: pass
         await unzip_bot.send_message(
             chat_id=int(c_id), 
-            text=f"✅ Video Album {index + 1}/{len(vid_chunks)} sent.\n👇 Choose Action:", 
+            text=f"✅ Video Album **{index + 1}** out of **{len(vid_chunks)}** sent successfully.", 
             reply_markup=markup
         )
         return
 
-    # ==========================
-    # 2. معالجة الصور
-    # ==========================
+    # 2. Image Albums
     elif current_type == "image" and index < len(img_chunks):
         batch = img_chunks[index]
-        try: await query.message.edit(f"⏳ Sending Image Album ({index + 1}/{len(img_chunks)}) ...")
-        except: pass
+        msg = await unzip_bot.send_message(chat_id=int(c_id), text=f"⚡️ Sending Image Album ({index + 1}/{len(img_chunks)}) ...")
         
         success = await send_album_batch(unzip_bot, int(c_id), batch, f"📁 Image Album {index+1} / {len(img_chunks)}")
         
@@ -234,30 +225,28 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
 
         next_idx = index + 1
         if next_idx < len(img_chunks):
-            nxt_tp, btn_text = "image", f"Next Image Album ({next_idx + 1}/{len(img_chunks)}) 🖼"
+            nxt_tp, btn_text = "image", f"Next Image Album ({next_idx + 1}) ⏭"
         elif others:
             nxt_tp, next_idx, btn_text = "other", 0, f"Upload Other Files ({len(others)}) 📄"
         else:
             nxt_tp, next_idx, btn_text = "done", 0, "Finish Sequence ✅"
 
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_id}|{c_id}|{nxt_tp}|{next_idx}")],
-            [InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")]
-        ])
+        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_id}|{c_id}|{nxt_tp}|{next_idx}")]]
+        if len(img_chunks) > 1 and current_type == "image":
+            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_id}|{c_id}|image|{len(img_chunks)}")])
+        buttons.append([InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")])
+        markup = InlineKeyboardMarkup(buttons)
         
-        # ---> التغيير الذكي: حذف الرسالة القديمة، وإرسال أزرار جديدة في الأسفل
-        try: await query.message.delete()
+        try: await msg.delete()
         except: pass
         await unzip_bot.send_message(
             chat_id=int(c_id), 
-            text=f"✅ Image Album {index + 1}/{len(img_chunks)} sent.\n👇 Choose Action:", 
+            text=f"✅ Image Album **{index + 1}** out of **{len(img_chunks)}** sent successfully.", 
             reply_markup=markup
         )
         return
 
-    # ==========================
-    # 3. معالجة باقي الملفات
-    # ==========================
+    # 3. Other files (non-media)
     elif current_type == "other":
         try: await query.message.edit(f"⏳ Sending {len(others)} Other Files Individually... 📄")
         except: pass
@@ -284,32 +273,33 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
                 except: pass
         current_type = "done"
 
-    # ==========================
-    # 4. إنهاء المهام
-    # ==========================
+    # 4. Done Processing
     if current_type == "done":
         try: shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{folder_id}")
         except: pass
         await update_uploaded(user_id, upload_count=1)
         await del_ongoing_task(user_id)
         try: 
-            await query.message.delete() # حذف رسالة الحالة النهائية العالقة
             await unzip_bot.send_message(chat_id=int(c_id), text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME)
         except: pass
+
 
 # Callbacks
 @unzipperbot.on_callback_query()
 async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
     uid = query.from_user.id
-    if uid != Config.BOT_OWNER:  # skipcq: PTC-W0048
-        if await count_ongoing_tasks() >= Config.MAX_CONCURRENT_TASKS:
-            ogtasks = await get_ongoing_tasks()
-            if not any(ogtask.get("user_id") == uid for ogtask in ogtasks):
-                await unzip_bot.send_message(
-                    chat_id=uid,
-                    text=Messages.MAX_TASKS.format(Config.MAX_CONCURRENT_TASKS),
-                )
-                return
+    
+    # -----------------------------------------------
+    # تفعيل حد "5 مهام" لكل شخص بدلا من الحد القديم
+    # -----------------------------------------------
+    if uid != Config.BOT_OWNER:
+        ogtasks = await get_ongoing_tasks()
+        user_tasks_count = sum(1 for ogtask in ogtasks if ogtask.get("user_id") == uid)
+        
+        # إذا كان لديه 5 مهام جارية بالفعل يتم رفض الطلب السادس
+        if user_tasks_count >= 5:
+            await answer_query(query, "❌ You have reached the maximum limit of 5 concurrent tasks. Please wait for them to finish.", unzip_client=unzip_bot)
+            return
 
     if uid != Config.BOT_OWNER and await get_maintenance():
         await answer_query(query, Messages.MAINTENANCE_ON)
@@ -676,7 +666,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         try:
             if splitted_data[1] == "url":
                 url = r_message.text
-                # Double check
                 if not re.match(https_url_regex, url):
                     await del_ongoing_task(user_id)
                     await query.message.edit(Messages.INVALID_URL)
@@ -689,7 +678,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 if splitted_data[1] == "url":
                     s = ClientSession()
                     async with s as session:
-                        # Get the file size
                         unzip_head = await session.head(url, allow_redirects=True)
                         f_size = unzip_head.headers.get("content-length")
                         u_file_size = f_size if f_size else "undefined"
@@ -1286,7 +1274,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         await update_uploaded(user_id, upload_count=sent_files)
 
     # ==========================================
-    # === REWORKED EXT_A AND NEXT ALBUM LOGIC ==
+    # === REWORKED EXT_A (ALBUM SYSTEM) ===
     # ==========================================
     elif query.data.startswith("ext_a"):
         LOGGER.info(query.data)
@@ -1313,7 +1301,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await query.message.edit(text=Messages.NO_FILE_LEFT, reply_markup=Buttons.RATE_ME)
             return
 
-        # في حال الملفات المستضافة كتيار حي من رابط خارجي (استبقاء الوضع الفردي المعتاد)
+        # التعامل مع الملفات المباشرة من روابط خارجية
         if urled:
             await query.message.edit(Messages.SEND_ALL_FILES)
             async_paths = async_generator(paths)
@@ -1321,7 +1309,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 sent_files += 1
                 file = spl_data[4].open(file)
                 fsize = Config.TG_MAX_SIZE + 1
-                fname = str(file).split("/")[-1] # تأمين اسم أولي
+                fname = str(file).split("/")[-1]
                 smessage = await unzip_bot.send_message(chat_id=user_id, text=Messages.SPLITTING.format(fname))
                 splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
                 os.makedirs(splitteddir, exist_ok=True)
@@ -1340,7 +1328,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             except: pass
             return
 
-        # منطق استخراج ألبومات الوسائط (Local Extracted Files)
         vids, imgs, others = [], [], []
         for p in paths:
             ext = p.lower().split('.')[-1]
@@ -1351,7 +1338,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         vid_chunks = chunk_list(vids, 10)
         img_chunks = chunk_list(imgs, 10)
 
-        # عرض إحصائية للمستخدم قبل الانطلاق
         stats_msg = (
             "📊 **Extraction Details & Albums Summary:**\n\n"
             f"🎞 **Video Albums:** {len(vid_chunks)} (10 videos/album max)\n"
@@ -1365,16 +1351,53 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         start_tp = "video" if vids else ("image" if imgs else "other")
         await process_album_pagination(query, unzip_bot, folder_id, c_id, start_tp, 0)
 
-    # معالج "المجموعة التالية" للألبومات
     elif query.data.startswith("nxtalb"):
-        # Format Data: nxtalb|folder_id|c_id|type|index
         data = query.data.split("|")
         f_id = data[1]
         c_id = data[2]
         tp = data[3]
         idx = int(data[4])
         await process_album_pagination(query, unzip_bot, f_id, c_id, tp, idx)
-    # ==========================================
+
+    elif query.data.startswith("jumpalb"):
+        data = query.data.split("|")
+        f_id = data[1]
+        c_id = data[2]
+        tp = data[3]
+        max_chunks = int(data[4])
+        user_id = query.from_user.id
+
+        try: await query.message.delete()
+        except: pass
+
+        try:
+            ask_msg = await unzip_bot.ask(
+                chat_id=user_id,
+                text=f"🔢 **Reply with the album number you want to jump to!**\n\n(Choose a number between **1** and **{max_chunks}**)\n*Send '0' to cancel*",
+                timeout=120
+            )
+            
+            if not ask_msg.text or not ask_msg.text.isdigit():
+                await unzip_bot.send_message(chat_id=user_id, text="❌ Invalid Input. Please click the Jump button again.")
+                return
+            
+            input_num = int(ask_msg.text)
+            
+            if input_num == 0:
+                btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Resume Sequence", callback_data=f"nxtalb|{f_id}|{c_id}|{tp}|0")]])
+                await unzip_bot.send_message(user_id, "🚫 Jump cancelled.", reply_markup=btn)
+                return
+                
+            elif input_num < 1 or input_num > max_chunks:
+                btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Sequence", callback_data=f"nxtalb|{f_id}|{c_id}|{tp}|0")]])
+                await unzip_bot.send_message(user_id, f"❌ Out of range! Must be between 1 and {max_chunks}.", reply_markup=btn)
+                return
+            
+            target_idx = input_num - 1
+            await process_album_pagination(query, unzip_bot, f_id, c_id, tp, target_idx)
+            
+        except asyncio.TimeoutError:
+            await unzip_bot.send_message(chat_id=user_id, text="⏱ Timeout! You took too long to send the number. Click the Jump button again if you still want to skip.")
 
     elif query.data == "cancel_dis":
         uid = query.from_user.id
