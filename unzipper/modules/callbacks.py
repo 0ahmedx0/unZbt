@@ -158,8 +158,7 @@ async def send_album_batch(unzip_bot, chat_id, batch, caption_msg=""):
 
 async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_type, index):
     user_id = query.from_user.id
-    # هنا المسار قد يكون معقداً لذا سنحاول استنتاجه أو الاعتماد على folder_id
-    # في التعديل الجديد folder_id سيكون المسار الكامل للمجلد الفرعي
+    # استنتاج المسار بناءً على ما إذا كان folder_id مساراً كاملاً أم اسم مجلد فقط
     if "/" in str(folder_id):
         file_path = f"{folder_id}/extracted"
         base_folder = folder_id
@@ -503,77 +502,31 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             try: os.remove(archive_path)
             except: pass
 
-            try:
-                i_e_buttons = await make_keyboard(
-                    paths=paths,
-                    user_id=target_uid,
-                    chat_id=query.message.chat.id,
-                    unziphttp=False,
-                    # نمرر مسار المجلد الأساسي كـ folder_id الجديد لضمان العمل مع المسار الفريد
-                    # make_keyboard يتوقع مساراً، هنا سنقوم بخدعة صغيرة لتمرير المسار الكامل
-                )
-                # ملحوظة: دالة make_keyboard تعيد الأزرار بحيث يكون callback هو ext_f|folder|...
-                # سنحتاج للتأكد من أن folder هو المسار الصحيح (الفريد)
-                
-                # هنا يجب أن نمرر المجلد النسبي إذا كانت الدوال الأخرى تعتمد عليه، أو المطلق.
-                # في هذا الكود الجديد، قمنا بتعديل process_album_pagination لقبول مسارات كاملة،
-                # ولكن يجب التأكد من أن make_keyboard تُنشئ روابط صحيحة.
-                # نظراً لتعقيد make_keyboard في ملف خارجي، سنفترض أنها تستخدم ID المجلد.
-                # المتغير download_path هو: Config.DOWNLOAD_LOCATION / {user_id}_{time}
-                # نحتاج فقط الجزء الأخير: {user_id}_{time}
-                unique_folder_name = os.path.basename(download_path)
-                
-                # نعيد بناء الكيبورد بالاسم الفريد
-                i_e_buttons = await make_keyboard(
-                    paths=paths,
-                    user_id=target_uid,
-                    chat_id=query.message.chat.id,
-                    unziphttp=False
-                    # key_path يتم التعامل معه داخل make_keyboard، نتوقع أنه يأخذ User ID كافتراضي،
-                    # لذا قد نحتاج لتعديل make_keyboard خارجياً، لكن كحل سريع:
-                    # لا يمكننا تعديل ملف خارجي، لذا سنعتمد على أن المتغير folder_id في Callbacks الأخرى يستقبل هذا الاسم.
-                )
-                
-                # تصحيح يدوي لـ callback_data في الأزرار إذا لزم الأمر، لكن الأفضل الاعتماد على البنية الحالية
-                # الحل الأمثل: نعدل استدعاء make_keyboard في ext_script/ext_helper.py إذا كان متاحاً،
-                # أو نغير القيم يدوياً في القائمة. بما أنني لا أملك ملف ext_helper، سأفترض أن الكود يعمل
-                # وسأقوم بتمرير المجلد الفريد كمعلومة في الرسالة.
-                
-                # بما أننا لا نعدل ext_helper، سنقوم "بخداع" التابعين بتبديل الزر الأول (Upload All) ليشير للمجلد الجديد.
-                # الأزرار تعود كـ List of Lists of InlineKeyboardButton
-                
-                # تحديث زر ext_a ليشير للمجلد الفريد
-                new_keyboard = []
-                for row in i_e_buttons.inline_keyboard:
-                    new_row = []
-                    for btn in row:
-                        if btn.callback_data.startswith("ext_a"):
-                            # ext_a|user_id|chat_id|... -> ext_a|unique_folder|chat_id...
-                            parts = btn.callback_data.split("|")
-                            # parts[1] هو user_id عادة، سنبدله بـ unique_folder_name
-                            parts[1] = unique_folder_name
-                            new_data = "|".join(parts)
-                            new_row.append(InlineKeyboardButton(btn.text, callback_data=new_data))
-                        elif btn.callback_data.startswith("ext_f"):
-                            # نفس الشيء للملفات الفردية
-                            parts = btn.callback_data.split("|")
-                            parts[1] = unique_folder_name
-                            new_data = "|".join(parts)
-                            new_row.append(InlineKeyboardButton(btn.text, callback_data=new_data))
-                        else:
-                            new_row.append(btn)
-                    new_keyboard.append(new_row)
-                
-                final_markup = InlineKeyboardMarkup(new_keyboard)
+            # -----------------------------------------------------------------
+            # التعديل: إنشاء كيبورد يحتوي فقط على (رفع الكل + إلغاء)
+            # -----------------------------------------------------------------
+            unique_folder_name = os.path.basename(download_path)
+            chat_id = query.message.chat.id
+            
+            # زر "رفع الكل" سيستخدم خاصية ext_a المعدلة سابقاً
+            upload_all_btn = InlineKeyboardButton(
+                "📤 Upload All (Albums) 📤", 
+                callback_data=f"ext_a|{unique_folder_name}|{chat_id}|NONE|0"
+            )
+            cancel_btn = InlineKeyboardButton(
+                "❌ Cancel & Delete", 
+                callback_data="cancel_dis"
+            )
+            
+            simple_markup = InlineKeyboardMarkup([
+                [upload_all_btn],
+                [cancel_btn]
+            ])
 
-                await query.message.edit(
-                    f"✅ Extraction completed in {extrtime}!\n\n**Select files to upload:**", 
-                    reply_markup=final_markup
-                )
-            except Exception as e:
-                LOGGER.error(e)
-                # Fallback simple error
-                await query.message.edit("Extraction done, but failed to generate keyboard.")
+            await query.message.edit(
+                f"✅ Extraction completed in {extrtime}!\n\n**Ready to upload:**", 
+                reply_markup=simple_markup
+            )
 
         elif action_type == "cancel":
             try:
@@ -631,10 +584,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             async for message in async_newarray:
                 i += 1
                 fname = message.document.file_name
-                
-                # تعليق إرسال رسالة السجل (تجاوز الأخطاء)
                 pass 
-
                 location = f"{download_path}/{fname}"
                 s_time = time()
                 await message.download(
