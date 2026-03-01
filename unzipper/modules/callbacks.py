@@ -4,6 +4,7 @@ import concurrent.futures
 import os
 import re
 import shutil
+import glob
 import unzip_http
 
 from aiofiles import open as openfile
@@ -158,13 +159,15 @@ async def send_album_batch(unzip_bot, chat_id, batch, caption_msg=""):
 
 async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_type, index):
     user_id = query.from_user.id
-    # استنتاج المسار بناءً على ما إذا كان folder_id مساراً كاملاً أم اسم مجلد فقط
+    # إصلاح ذكي: إذا كان folder_id مسار كامل نستخدمه، وإلا نستخدمه كاسم مجلد
     if "/" in str(folder_id):
         file_path = f"{folder_id}/extracted"
         base_folder = folder_id
+        folder_name_only = os.path.basename(folder_id)
     else:
         file_path = f"{Config.DOWNLOAD_LOCATION}/{folder_id}/extracted"
         base_folder = f"{Config.DOWNLOAD_LOCATION}/{folder_id}"
+        folder_name_only = folder_id
         
     paths = await get_files(path=file_path)
     active_log_msg = DummyMessage()
@@ -212,9 +215,9 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         else:
             nxt_tp, next_idx, btn_text = "done", 0, "Finish Sequence ✅"
 
-        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_id}|{c_id}|{nxt_tp}|{next_idx}")]]
+        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_name_only}|{c_id}|{nxt_tp}|{next_idx}")]]
         if len(vid_chunks) > 1 and current_type == "video":
-            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_id}|{c_id}|video|{len(vid_chunks)}")])
+            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_name_only}|{c_id}|video|{len(vid_chunks)}")])
         buttons.append([InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")])
         markup = InlineKeyboardMarkup(buttons)
         
@@ -246,9 +249,9 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         else:
             nxt_tp, next_idx, btn_text = "done", 0, "Finish Sequence ✅"
 
-        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_id}|{c_id}|{nxt_tp}|{next_idx}")]]
+        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_name_only}|{c_id}|{nxt_tp}|{next_idx}")]]
         if len(img_chunks) > 1 and current_type == "image":
-            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_id}|{c_id}|image|{len(img_chunks)}")])
+            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_name_only}|{c_id}|image|{len(img_chunks)}")])
         buttons.append([InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")])
         markup = InlineKeyboardMarkup(buttons)
         
@@ -443,11 +446,15 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
     # 2. معالج "فك الضغط اليدوي" (Archive Action)
     # ================================================
     elif query.data.startswith("archive_action"):
-        # تنسيق: archive_action|type|user_id|archive_path|password
+        # Format: archive_action|type|user_id|folder_id
         data = query.data.split("|")
         action_type = data[1]
         target_uid = int(data[2])
-        archive_path = data[3]
+        folder_id = data[3]
+        
+        # إعادة بناء المسار بناءً على الـ folder_id فقط لتقليل طول البيانات في الزر
+        download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_id}"
+        ext_files_dir = f"{download_path}/extracted"
         
         # التأكد من المستخدم
         if query.from_user.id != target_uid:
@@ -455,30 +462,36 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             return
 
         if action_type == "extract":
-            password = None
-            if len(data) > 4:
-                password = data[4]
-            
+            # نحتاج لمعرفة اسم ملف الأرشيف داخل المجلد
+            # بما أننا خصصنا مجلداً لكل عملية، فسيكون هناك ملف أرشيف واحد فقط
+            try:
+                # البحث عن أي ملف في المجلد الرئيسي (باستثناء مجلد extracted)
+                files_in_dir = [f for f in os.listdir(download_path) if f != "extracted"]
+                if not files_in_dir:
+                    await query.message.edit("❌ File not found. It might be deleted.")
+                    return
+                archive_name = files_in_dir[0]
+                archive_path = f"{download_path}/{archive_name}"
+            except Exception as e:
+                LOGGER.error(f"Error finding archive: {e}")
+                await query.message.edit("❌ Error locating the archive.")
+                return
+
             try: await query.message.edit(Messages.PROCESSING2)
             except: pass
                 
-            download_path = os.path.dirname(archive_path)
-            ext_files_dir = f"{download_path}/extracted"
             os.makedirs(ext_files_dir, exist_ok=True)
-
-            if password:
-                ext_s_time = time()
-                extractor = await extr_files(path=ext_files_dir, archive_path=archive_path, password=password)
+            
+            ext_s_time = time()
+            # فك الضغط بدون باسوورد (للبساطة في النسخة الجديدة) أو مع طلب
+            tested = await _test_with_7z_helper(archive_path)
+            if tested:
+                extractor = await extr_files(path=ext_files_dir, archive_path=archive_path)
                 ext_e_time = time()
             else:
-                ext_s_time = time()
-                tested = await _test_with_7z_helper(archive_path)
-                if tested:
-                    extractor = await extr_files(path=ext_files_dir, archive_path=archive_path)
-                    ext_e_time = time()
-                else:
-                    extractor = "Error"
-                    ext_e_time = time()
+                # ربما يحتاج باسوورد، نعتبره خطأ حالياً ونطلب من المستخدم
+                extractor = "Error"
+                ext_e_time = time()
             
             if any(err in extractor for err in ERROR_MSGS):
                 try:
@@ -490,7 +503,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
             paths = await get_files(path=ext_files_dir)
             if not paths:
-                try: await query.message.edit("❌ Extraction failed or empty archive.")
+                try: await query.message.edit("❌ Extraction failed or archive is password protected.")
                 except: pass
                 shutil.rmtree(ext_files_dir)
                 await del_ongoing_task(target_uid)
@@ -499,19 +512,19 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
             if extrtime == "": extrtime = "1s"
 
+            # حذف ملف الأرشيف المضغوط
             try: os.remove(archive_path)
             except: pass
 
             # -----------------------------------------------------------------
-            # التعديل: إنشاء كيبورد يحتوي فقط على (رفع الكل + إلغاء)
+            # التعديل: إرسال اسم المجلد (القصير) بدلاً من المسار الكامل
             # -----------------------------------------------------------------
-            unique_folder_name = os.path.basename(download_path)
             chat_id = query.message.chat.id
             
-            # زر "رفع الكل" سيستخدم خاصية ext_a المعدلة سابقاً
+            # نستخدم folder_id الذي هو أصلاً اسم المجلد القصير {uid}_{time}
             upload_all_btn = InlineKeyboardButton(
                 "📤 Upload All (Albums) 📤", 
-                callback_data=f"ext_a|{unique_folder_name}|{chat_id}|NONE|0"
+                callback_data=f"ext_a|{folder_id}|{chat_id}|NONE|0"
             )
             cancel_btn = InlineKeyboardButton(
                 "❌ Cancel & Delete", 
@@ -530,7 +543,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
         elif action_type == "cancel":
             try:
-                shutil.rmtree(os.path.dirname(archive_path))
+                shutil.rmtree(download_path)
             except: pass
             await del_ongoing_task(target_uid)
             await query.message.edit("❌ Operation Cancelled. Archive deleted.")
@@ -584,7 +597,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             async for message in async_newarray:
                 i += 1
                 fname = message.document.file_name
+                
+                # تعليق إرسال رسالة السجل (تجاوز الأخطاء)
                 pass 
+
                 location = f"{download_path}/{fname}"
                 s_time = time()
                 await message.download(
@@ -754,10 +770,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         start_time = time()
         await add_ongoing_task(user_id, start_time, "extract")
         
-        # 3. تعديل لمنع التداخل (Unique Folder)
-        timestamp = str(int(time()))
-        # إذا استخدمنا المجلد القديم سيتداخل
-        download_path = f"{Config.DOWNLOAD_LOCATION}/{user_id}_{timestamp}"
+        # إنشاء معرف مجلد فريد وقصير
+        folder_unique_id = f"{user_id}_{int(time())}"
+        download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_unique_id}"
         
         ext_files_dir = f"{download_path}/extracted"
         r_message = query.message.reply_to_message
@@ -853,9 +868,13 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                             dltime = TimeFormatter(round(e_time - s_time) * 1000)
                             if dltime == "": dltime = "1s"
 
+                            # ---------------------------------------------
+                            # الحل النهائي لمشكلة المسارات الطويلة
+                            # نرسل فقط رقم المجلد (Folder ID) القصير جداً
+                            # ---------------------------------------------
                             markup = InlineKeyboardMarkup([
-                                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{archive}")],
-                                [InlineKeyboardButton("❌ Cancel", callback_data=f"archive_action|cancel|{user_id}|{archive}")]
+                                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}")],
+                                [InlineKeyboardButton("❌ Cancel", callback_data=f"archive_action|cancel|{user_id}|{folder_unique_id}")]
                             ])
                             await query.message.edit(
                                 text=f"✅ Downloaded in {dltime}.\n**Choose action:**",
@@ -914,18 +933,12 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             dltime = TimeFormatter(round(e_time - s_time) * 1000)
             if dltime == "": dltime = "1s"
             
-            pass_str = ""
-            if splitted_data[2] == "with_pass":
-                password_msg = await unzip_bot.ask(
-                    chat_id=query.message.chat.id, text=Messages.PLS_SEND_PASSWORD
-                )
-                pass_str = f"|{password_msg.text}"
-                try: await password_msg.delete() 
-                except: pass
-            
+            # ---------------------------------------------
+            # الحل النهائي لمشكلة المسارات الطويلة (نفس الشيء هنا)
+            # ---------------------------------------------
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{location}{pass_str}")],
-                [InlineKeyboardButton("❌ Cancel / Delete", callback_data=f"archive_action|cancel|{user_id}|{location}")]
+                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}")],
+                [InlineKeyboardButton("❌ Cancel / Delete", callback_data=f"archive_action|cancel|{user_id}|{folder_unique_id}")]
             ])
             
             await query.message.edit(
