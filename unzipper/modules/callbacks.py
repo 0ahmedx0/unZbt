@@ -61,6 +61,15 @@ rar_file_pattern = r"\.part\d+\.rar$"
 telegram_url_pattern = r"(?:http[s]?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]+)\/(\d+)"
 
 
+# ==========================================
+# ===== فئة رسائل وهمية لتعطيل السجلات =====
+# ==========================================
+class DummyMessage:
+    async def edit(self, *args, **kwargs): pass
+    async def reply(self, *args, **kwargs): pass
+    async def delete(self, *args, **kwargs): pass
+    async def forward(self, *args, **kwargs): return self
+
 async def download(url, path):
     try:
         async with ClientSession() as session, session.get(
@@ -118,9 +127,6 @@ async def async_generator(iterable):
         yield item
 
 
-# ==========================================
-# ===== NEW ALBUM & MEDIA HELPER FUNCS =====
-# ==========================================
 def chunk_list(lst, n):
     return [lst[i:i + n] for i in range(0, len(lst), n)]
 
@@ -151,8 +157,8 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
     file_path = f"{Config.DOWNLOAD_LOCATION}/{folder_id}/extracted"
     paths = await get_files(path=file_path)
 
-    try: active_log_msg = log_msg
-    except NameError: active_log_msg = await unzip_bot.send_message(chat_id=Config.LOGS_CHANNEL, text=f"Processing tasks for {user_id}")
+    # إلغاء رسالة السجل
+    active_log_msg = DummyMessage()
 
     if not paths:
         try: shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{folder_id}")
@@ -289,14 +295,10 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
 async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
     uid = query.from_user.id
     
-    # -----------------------------------------------
-    # تفعيل حد "5 مهام" لكل شخص بدلا من الحد القديم
-    # -----------------------------------------------
     if uid != Config.BOT_OWNER:
         ogtasks = await get_ongoing_tasks()
         user_tasks_count = sum(1 for ogtask in ogtasks if ogtask.get("user_id") == uid)
         
-        # إذا كان لديه 5 مهام جارية بالفعل يتم رفض الطلب السادس
         if user_tasks_count >= 5:
             await answer_query(query, "❌ You have reached the maximum limit of 5 concurrent tasks. Please wait for them to finish.", unzip_client=unzip_bot)
             return
@@ -472,7 +474,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             async for message in async_newarray:
                 i += 1
                 fname = message.document.file_name
-                await message.forward(chat_id=Config.LOGS_CHANNEL)
+                
+                # تعليق إرسال رسالة السجل (تجاوز الأخطاء)
+                pass # await message.forward(chat_id=Config.LOGS_CHANNEL)
+
                 location = f"{download_path}/{fname}"
                 s_time = time()
                 await message.download(
@@ -522,12 +527,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 pass
             return
         splitted_data = query.data.split("|")
-        log_msg = await unzip_bot.send_message(
-            chat_id=Config.LOGS_CHANNEL,
-            text=Messages.PROCESS_MERGE.format(
-                user_id, ".".join(file.split("/")[-1].split(".")[:-1])
-            ),
-        )
+        
+        # تعطيل السجلات (Logs) 
+        log_msg = DummyMessage()
+        
         try:
             await query.message.edit(Messages.PROCESSING_TASK)
         except:
@@ -545,11 +548,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             )
             ext_e_time = time()
         else:
-            # Can't test the archive apparently
             ext_s_time = time()
             extractor = await merge_files(iinput=file, ooutput=ext_files_dir)
             ext_e_time = time()
-        # Checks if there is an error happened while extracting the archive
         if any(err in extractor for err in ERROR_MSGS):
             try:
                 await query.message.edit(Messages.EXT_FAILED_TXT)
@@ -567,7 +568,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 shutil.rmtree(ext_files_dir)
                 await del_ongoing_task(user_id)
             return
-        # Check if user was dumb 😐
         paths = await get_files(path=ext_files_dir)
         if not paths:
             await unzip_bot.send_message(
@@ -585,7 +585,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         except:
             pass
 
-        # Upload extracted files
         extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
         if extrtime == "":
             extrtime = "1s"
@@ -658,9 +657,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await query.message.edit(Messages.PROCESSING_TASK)
         except:
             pass
-        log_msg = await unzip_bot.send_message(
-            chat_id=Config.LOGS_CHANNEL, text=Messages.USER_QUERY.format(user_id)
-        )
+            
+        # تعطيل السجل (Logs)
+        log_msg = DummyMessage()
         global archive_msg
 
         try:
@@ -687,9 +686,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                             await del_ongoing_task(user_id)
                             await query.message.edit(Messages.NO_SPACE)
                             return
-                        await log_msg.edit(
-                            Messages.LOG_TXT.format(user_id, url, u_file_size)
-                        )
+
                         archive_msg = log_msg
                         unzip_resp = await session.get(
                             url, timeout=None, allow_redirects=True
@@ -819,13 +816,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                             if isinstance(dled, bool) and not dled:
                                 return
                             e_time = time()
-                            await send_url_logs(
-                                unzip_bot=unzip_bot,
-                                c_id=Config.LOGS_CHANNEL,
-                                doc_f=archive,
-                                source=url,
-                                message=query.message,
-                            )
+                            
+                            # تعطيل السجلات الخارجية تماماً هنا أيضاً
+                            pass # await send_url_logs( ... )
+                            
                         else:
                             await del_ongoing_task(user_id)
                             await query.message.edit(Messages.CANT_DL_URL)
@@ -842,12 +836,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     return
                 fname = r_message.document.file_name
                 rfnamebro = fname
-                archive_msg = await r_message.forward(chat_id=Config.LOGS_CHANNEL)
-                await log_msg.edit(
-                    Messages.LOG_TXT.format(
-                        user_id, fname, humanbytes(r_message.document.file_size)
-                    )
-                )
+                
+                # إيقاف التوجيه لمجموعة اللوجات المفقودة
+                archive_msg = DummyMessage() 
+
                 if splitted_data[2] not in ["thumb", "thumbrename"]:
                     fext = fname.split(".")[-1].casefold()
                     if (
@@ -974,7 +966,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 query, Messages.AFTER_OK_DL_TXT.format(dltime), unzip_client=unzip_bot
             )
 
-            # Attempt to fetch password protected archives
             if splitted_data[2] == "with_pass":
                 password = await unzip_bot.ask(
                     chat_id=query.message.chat.id, text=Messages.PLS_SEND_PASSWORD
@@ -986,7 +977,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     password=password.text,
                 )
                 ext_e_time = time()
-                await archive_msg.reply(Messages.PASS_TXT.format(password.text))
             else:
                 ext_s_time = time()
                 tested = await _test_with_7z_helper(archive)
@@ -1008,13 +998,11 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     LOGGER.info("Error on test")
                     extractor = "Error"
                     ext_e_time = time()
-            # Checks if there is an error happened while extracting the archive
             if any(err in extractor for err in ERROR_MSGS):
                 try:
                     await query.message.edit(Messages.EXT_FAILED_TXT)
                     shutil.rmtree(ext_files_dir)
                     await del_ongoing_task(user_id)
-                    await log_msg.reply(Messages.EXT_FAILED_TXT)
                     return
                 except:
                     try:
@@ -1026,12 +1014,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     )
                     shutil.rmtree(ext_files_dir)
                     await del_ongoing_task(user_id)
-                    await archive_msg.reply(Messages.EXT_FAILED_TXT)
                     return
-            # Check if user was dumb 😐
             paths = await get_files(path=ext_files_dir)
             if not paths:
-                await archive_msg.reply(Messages.PASSWORD_PROTECTED)
                 await unzip_bot.send_message(
                     chat_id=query.message.chat.id,
                     text=Messages.PASSWORD_PROTECTED,
@@ -1043,7 +1028,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 await del_ongoing_task(user_id)
                 return
 
-            # Upload extracted files
             extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
             if extrtime == "":
                 extrtime = "1s"
@@ -1101,7 +1085,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                         await answer_query(
                             query, Messages.EXT_FAILED_TXT, unzip_client=unzip_bot
                         )
-                        await archive_msg.reply(Messages.EXT_FAILED_TXT)
                         shutil.rmtree(ext_files_dir)
                         LOGGER.error(Messages.FATAL_ERROR)
                         await del_ongoing_task(user_id)
@@ -1116,7 +1099,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     await unzip_bot.send_message(
                         chat_id=query.message.chat.id, text=Messages.ERROR_TXT.format(e)
                     )
-                await archive_msg.reply(Messages.ERROR_TXT.format(e))
                 shutil.rmtree(ext_files_dir)
                 try:
                     await ClientSession().close()
@@ -1125,7 +1107,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 LOGGER.error(e)
             except Exception as err:
                 LOGGER.error(err)
-                await archive_msg.reply(err)
 
     elif query.data.startswith("ext_f"):
         LOGGER.info(query.data)
@@ -1273,9 +1254,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 )
         await update_uploaded(user_id, upload_count=sent_files)
 
-    # ==========================================
-    # === REWORKED EXT_A (ALBUM SYSTEM) ===
-    # ==========================================
     elif query.data.startswith("ext_a"):
         LOGGER.info(query.data)
         user_id = query.from_user.id
@@ -1301,7 +1279,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await query.message.edit(text=Messages.NO_FILE_LEFT, reply_markup=Buttons.RATE_ME)
             return
 
-        # التعامل مع الملفات المباشرة من روابط خارجية
         if urled:
             await query.message.edit(Messages.SEND_ALL_FILES)
             async_paths = async_generator(paths)
@@ -1319,7 +1296,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     except: pass
                     continue
                 async for s_file in async_generator(splittedfiles):
-                    await send_file(unzip_bot=unzip_bot, c_id=user_id, doc_f=s_file, query=query, full_path=splitteddir, log_msg=log_msg, split=True)
+                    await send_file(unzip_bot=unzip_bot, c_id=user_id, doc_f=s_file, query=query, full_path=splitteddir, log_msg=DummyMessage(), split=True)
                 try: shutil.rmtree(splitteddir)
                 except: pass
             
@@ -1409,10 +1386,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             )
             shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{uid}")
             await update_uploaded(user_id=uid, upload_count=sent_files)
-            try:
-                await log_msg.reply(Messages.HOW_MANY_UPLOADED.format(sent_files))
-            except:
-                return
         except:
             await unzip_bot.send_message(
                 chat_id=uid,
