@@ -541,7 +541,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
 
     # ================================================
-    # Archive Action (Extraction Logic)
+    # Archive Action (Extraction Logic - Infinite Retry Password)
     # ================================================
     elif query.data.startswith("archive_action"):
         data = query.data.split("|")
@@ -592,9 +592,16 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     except:
                         pass
                 except asyncio.TimeoutError:
+                    # تحرير المهمة فوراً في حال الانتهاء للوقت لكي لا يعلق المستخدم
+                    await del_ongoing_task(target_uid)
+                    
+                    retry_markup = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔄 Try Password Again", callback_data=f"archive_action|extract|{target_uid}|{folder_id}|P")],
+                        [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
+                    ])
                     await query.message.edit(
-                        "❌ **Timeout!** You didn't send the password in time.\nPlease click Extract Now to try again.", 
-                        reply_markup=query.message.reply_markup
+                        "❌ **Timeout!** You didn't send the password in time.\nPlease click Try Again below.", 
+                        reply_markup=retry_markup
                     )
                     return
 
@@ -618,25 +625,34 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     extractor = "Error"
                     ext_e_time = time()
             
-            if any(err in extractor for err in ERROR_MSGS):
-                try:
-                    await query.message.edit("❌ **Extraction failed!**\nEither the password was wrong, or the file is corrupted.")
-                    shutil.rmtree(ext_files_dir)
-                    await del_ongoing_task(target_uid)
-                except:
-                    pass
-                return
-
+            # قراءة المجلد بعد الاستخراج
             paths = await get_files(path=ext_files_dir)
-            if not paths:
+            
+            # النظام الجديد للاختبار اللانهائي لكلمات المرور
+            if any(err in extractor for err in ERROR_MSGS) or not paths:
                 try:
-                    await query.message.edit("❌ **Extraction failed or empty!**\nIf the file is encrypted, please select *Extract with password* when uploading.")
+                    shutil.rmtree(ext_files_dir) # نحذف الملفات الفاشلة فقط ولا نحذف الأرشيف الأساسي
                 except:
                     pass
-                shutil.rmtree(ext_files_dir)
-                await del_ongoing_task(target_uid)
+                    
+                await del_ongoing_task(target_uid) # نحرر حجز المهمة
+                
+                # إظهار زر طلب باسوورد إجباري
+                retry_markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Enter Password Again", callback_data=f"archive_action|extract|{target_uid}|{folder_id}|P")],
+                    [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
+                ])
+                
+                try:
+                    await query.message.edit(
+                        "❌ **Extraction failed!**\nEither the password was wrong, or the archive is encrypted.\n\nPlease try entering the password again.",
+                        reply_markup=retry_markup
+                    )
+                except:
+                    pass
                 return
 
+            # نجاح عملية الفك!
             extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
             if extrtime == "":
                 extrtime = "1s"
@@ -1068,7 +1084,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 return
 
             if splitted_data[2].startswith("thumb"):
-                # Handle thumbnail specific options untouched
                 pass
 
             dltime = TimeFormatter(round(e_time - s_time) * 1000)
