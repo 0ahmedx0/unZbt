@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import glob
+
 import unzip_http
 
 from aiofiles import open as openfile
@@ -62,7 +63,7 @@ telegram_url_pattern = r"(?:http[s]?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]+)\/(\d
 
 
 # ==========================================
-# ===== فئة وهمية لتجاوز أخطاء قناة السجل ==
+# ===== فئة رسائل وهمية لتعطيل أخطاء القناة ==
 # ==========================================
 class DummyMessage:
     async def edit(self, *args, **kwargs): pass
@@ -129,9 +130,8 @@ async def async_generator(iterable):
 
 
 # ==========================================
-# ===== دوال مساعدة للألبومات ==============
+# ===== دوال مساعدة لإنشاء الألبومات ========
 # ==========================================
-
 def chunk_list(lst, n):
     return [lst[i:i + n] for i in range(0, len(lst), n)]
 
@@ -159,7 +159,7 @@ async def send_album_batch(unzip_bot, chat_id, batch, caption_msg=""):
 
 async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_type, index):
     user_id = query.from_user.id
-    # إصلاح ذكي: إذا كان folder_id مسار كامل نستخدمه، وإلا نستخدمه كاسم مجلد
+    
     if "/" in str(folder_id):
         file_path = f"{folder_id}/extracted"
         base_folder = folder_id
@@ -182,7 +182,6 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         except: pass
         return
 
-    # فرز الملفات
     vids, imgs, others = [], [], []
     for p in paths:
         ext = p.lower().split('.')[-1]
@@ -194,7 +193,6 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
     img_chunks = chunk_list(imgs, 10)
     index = int(index)
 
-    # 1. Video Albums
     if current_type == "video" and index < len(vid_chunks):
         batch = vid_chunks[index]
         msg = await unzip_bot.send_message(chat_id=int(c_id), text=f"⚡️ Sending Video Album ({index + 1}/{len(vid_chunks)}) ...")
@@ -230,7 +228,6 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         )
         return
 
-    # 2. Image Albums
     elif current_type == "image" and index < len(img_chunks):
         batch = img_chunks[index]
         msg = await unzip_bot.send_message(chat_id=int(c_id), text=f"⚡️ Sending Image Album ({index + 1}/{len(img_chunks)}) ...")
@@ -264,7 +261,6 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         )
         return
 
-    # 3. Other files (non-media)
     elif current_type == "other":
         try: await query.message.edit(f"⏳ Sending {len(others)} Other Files Individually... 📄")
         except: pass
@@ -291,7 +287,6 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
                 except: pass
         current_type = "done"
 
-    # 4. Done Processing
     if current_type == "done":
         try: shutil.rmtree(base_folder)
         except: pass
@@ -307,12 +302,9 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
 async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
     uid = query.from_user.id
     
-    # ---------------------------------------------
-    # 1. التحقق من عدد المهام (5 لكل مستخدم)
-    # ---------------------------------------------
+    # تحديد حد المهام المتزامنة لـ 5 مهام لكل شخص
     if uid != Config.BOT_OWNER:
         ogtasks = await get_ongoing_tasks()
-        # نعد المهام الخاصة بهذا المستخدم فقط
         user_tasks_count = sum(1 for ogtask in ogtasks if ogtask.get("user_id") == uid)
         
         if user_tasks_count >= 5:
@@ -325,6 +317,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
     sent_files = 0
     global log_msg
+    log_msg = DummyMessage() # تجاهل قناة اللوجات لمنع الاعطال
 
     if query.data == "megoinhome":
         await query.edit_message_text(
@@ -443,29 +436,25 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         await answer_query(query, Messages.CHANGED_UPLOAD_MODE_TXT.format(mode))
 
     # ================================================
-    # 2. معالج "فك الضغط اليدوي" (Archive Action)
+    # 2. معالج "فك الضغط اليدوي" مع دعم الباسوورد
     # ================================================
     elif query.data.startswith("archive_action"):
-        # Format: archive_action|type|user_id|folder_id
+        # Format: archive_action|type|user_id|folder_id|PasswordFlag(P/N)
         data = query.data.split("|")
         action_type = data[1]
         target_uid = int(data[2])
         folder_id = data[3]
+        needs_password = True if len(data) > 4 and data[4] == "P" else False
         
-        # إعادة بناء المسار بناءً على الـ folder_id فقط لتقليل طول البيانات في الزر
         download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_id}"
         ext_files_dir = f"{download_path}/extracted"
         
-        # التأكد من المستخدم
         if query.from_user.id != target_uid:
             await answer_query(query, "❌ This task is not yours!", unzip_client=unzip_bot)
             return
 
         if action_type == "extract":
-            # نحتاج لمعرفة اسم ملف الأرشيف داخل المجلد
-            # بما أننا خصصنا مجلداً لكل عملية، فسيكون هناك ملف أرشيف واحد فقط
             try:
-                # البحث عن أي ملف في المجلد الرئيسي (باستثناء مجلد extracted)
                 files_in_dir = [f for f in os.listdir(download_path) if f != "extracted"]
                 if not files_in_dir:
                     await query.message.edit("❌ File not found. It might be deleted.")
@@ -477,25 +466,42 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 await query.message.edit("❌ Error locating the archive.")
                 return
 
+            password = None
+            if needs_password:
+                try:
+                    pwd_msg = await unzip_bot.ask(
+                        chat_id=query.message.chat.id, 
+                        text="🔑 **This archive requires a password!**\nPlease send the password now (you have 60 seconds):", 
+                        timeout=60
+                    )
+                    password = pwd_msg.text
+                    try: await pwd_msg.delete()
+                    except: pass
+                except asyncio.TimeoutError:
+                    await query.message.edit("❌ **Timeout!** You didn't send the password in time.\nPlease click Extract Now to try again.", reply_markup=query.message.reply_markup)
+                    return
+
             try: await query.message.edit(Messages.PROCESSING2)
             except: pass
                 
             os.makedirs(ext_files_dir, exist_ok=True)
             
             ext_s_time = time()
-            # فك الضغط بدون باسوورد (للبساطة في النسخة الجديدة) أو مع طلب
-            tested = await _test_with_7z_helper(archive_path)
-            if tested:
-                extractor = await extr_files(path=ext_files_dir, archive_path=archive_path)
+            if password:
+                extractor = await extr_files(path=ext_files_dir, archive_path=archive_path, password=password)
                 ext_e_time = time()
             else:
-                # ربما يحتاج باسوورد، نعتبره خطأ حالياً ونطلب من المستخدم
-                extractor = "Error"
-                ext_e_time = time()
+                tested = await _test_with_7z_helper(archive_path)
+                if tested:
+                    extractor = await extr_files(path=ext_files_dir, archive_path=archive_path)
+                    ext_e_time = time()
+                else:
+                    extractor = "Error"
+                    ext_e_time = time()
             
             if any(err in extractor for err in ERROR_MSGS):
                 try:
-                    await query.message.edit(Messages.EXT_FAILED_TXT)
+                    await query.message.edit("❌ **Extraction failed!**\nEither the password was wrong, or the file is corrupted.")
                     shutil.rmtree(ext_files_dir)
                     await del_ongoing_task(target_uid)
                 except: pass
@@ -503,7 +509,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
             paths = await get_files(path=ext_files_dir)
             if not paths:
-                try: await query.message.edit("❌ Extraction failed or archive is password protected.")
+                try: await query.message.edit("❌ **Extraction failed or empty!**\nIf the file is encrypted, please select *Extract with password* when uploading.")
                 except: pass
                 shutil.rmtree(ext_files_dir)
                 await del_ongoing_task(target_uid)
@@ -512,29 +518,14 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
             if extrtime == "": extrtime = "1s"
 
-            # حذف ملف الأرشيف المضغوط
             try: os.remove(archive_path)
             except: pass
 
-            # -----------------------------------------------------------------
-            # التعديل: إرسال اسم المجلد (القصير) بدلاً من المسار الكامل
-            # -----------------------------------------------------------------
             chat_id = query.message.chat.id
+            upload_all_btn = InlineKeyboardButton("📤 Upload All (Albums) 📤", callback_data=f"ext_a|{folder_id}|{chat_id}|NONE|0")
+            cancel_btn = InlineKeyboardButton("❌ Cancel & Delete", callback_data="cancel_dis")
             
-            # نستخدم folder_id الذي هو أصلاً اسم المجلد القصير {uid}_{time}
-            upload_all_btn = InlineKeyboardButton(
-                "📤 Upload All (Albums) 📤", 
-                callback_data=f"ext_a|{folder_id}|{chat_id}|NONE|0"
-            )
-            cancel_btn = InlineKeyboardButton(
-                "❌ Cancel & Delete", 
-                callback_data="cancel_dis"
-            )
-            
-            simple_markup = InlineKeyboardMarkup([
-                [upload_all_btn],
-                [cancel_btn]
-            ])
+            simple_markup = InlineKeyboardMarkup([[upload_all_btn], [cancel_btn]])
 
             await query.message.edit(
                 f"✅ Extraction completed in {extrtime}!\n\n**Ready to upload:**", 
@@ -542,8 +533,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             )
 
         elif action_type == "cancel":
-            try:
-                shutil.rmtree(download_path)
+            try: shutil.rmtree(download_path)
             except: pass
             await del_ongoing_task(target_uid)
             await query.message.edit("❌ Operation Cancelled. Archive deleted.")
@@ -597,10 +587,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             async for message in async_newarray:
                 i += 1
                 fname = message.document.file_name
-                
-                # تعليق إرسال رسالة السجل (تجاوز الأخطاء)
                 pass 
-
                 location = f"{download_path}/{fname}"
                 s_time = time()
                 await message.download(
@@ -650,7 +637,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 pass
             return
         splitted_data = query.data.split("|")
-        log_msg = DummyMessage()
         try:
             await query.message.edit(Messages.PROCESSING_TASK)
         except:
@@ -770,19 +756,17 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         start_time = time()
         await add_ongoing_task(user_id, start_time, "extract")
         
-        # إنشاء معرف مجلد فريد وقصير
         folder_unique_id = f"{user_id}_{int(time())}"
         download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_unique_id}"
-        
         ext_files_dir = f"{download_path}/extracted"
         r_message = query.message.reply_to_message
         splitted_data = query.data.split("|")
+        
         try:
             await query.message.edit(Messages.PROCESSING_TASK)
         except:
             pass
             
-        log_msg = DummyMessage()
         global archive_msg
 
         try:
@@ -810,7 +794,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                             await query.message.edit(Messages.NO_SPACE)
                             return
 
-                        archive_msg = log_msg
                         unzip_resp = await session.get(
                             url, timeout=None, allow_redirects=True
                         )
@@ -868,12 +851,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                             dltime = TimeFormatter(round(e_time - s_time) * 1000)
                             if dltime == "": dltime = "1s"
 
-                            # ---------------------------------------------
-                            # الحل النهائي لمشكلة المسارات الطويلة
-                            # نرسل فقط رقم المجلد (Folder ID) القصير جداً
-                            # ---------------------------------------------
+                            pass_flag = "P" if splitted_data[2] == "with_pass" else "N"
                             markup = InlineKeyboardMarkup([
-                                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}")],
+                                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}|{pass_flag}")],
                                 [InlineKeyboardButton("❌ Cancel", callback_data=f"archive_action|cancel|{user_id}|{folder_unique_id}")]
                             ])
                             await query.message.edit(
@@ -889,7 +869,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     return
                 fname = r_message.document.file_name
                 rfnamebro = fname
-                archive_msg = DummyMessage()
 
                 if splitted_data[2] not in ["thumb", "thumbrename"]:
                     fext = fname.split(".")[-1].casefold()
@@ -933,11 +912,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             dltime = TimeFormatter(round(e_time - s_time) * 1000)
             if dltime == "": dltime = "1s"
             
-            # ---------------------------------------------
-            # الحل النهائي لمشكلة المسارات الطويلة (نفس الشيء هنا)
-            # ---------------------------------------------
+            pass_flag = "P" if splitted_data[2] == "with_pass" else "N"
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}")],
+                [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}|{pass_flag}")],
                 [InlineKeyboardButton("❌ Cancel / Delete", callback_data=f"archive_action|cancel|{user_id}|{folder_unique_id}")]
             ])
             
@@ -994,7 +971,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 doc_f=file,
                 query=query,
                 full_path=f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}",
-                log_msg=log_msg,
+                log_msg=DummyMessage(),
                 split=False,
             )
         else:
@@ -1027,7 +1004,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     doc_f=file,
                     query=query,
                     full_path=splitteddir,
-                    log_msg=log_msg,
+                    log_msg=DummyMessage(),
                     split=True,
                 )
             try:
@@ -1229,7 +1206,15 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await query.message.edit(
                 Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED)
             )
-            shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{uid}")
+            # حذف المجلد الأساسي القديم إن وجد
+            try: shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{uid}")
+            except: pass
+            
+            # مسح كافة المجلدات المرتبطة بالمستخدم لمنع التكدس (user_id_*)
+            for folder in glob.glob(f"{Config.DOWNLOAD_LOCATION}/{uid}_*"):
+                try: shutil.rmtree(folder)
+                except: pass
+                
             await update_uploaded(user_id=uid, upload_count=sent_files)
         except:
             await unzip_bot.send_message(
