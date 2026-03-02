@@ -62,14 +62,18 @@ rar_file_pattern = r"\.part\d+\.rar$"
 telegram_url_pattern = r"(?:http[s]?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]+)\/(\d+)"
 
 
-# ==========================================
-# ===== فئة رسائل وهمية لتعطيل أخطاء القناة ==
-# ==========================================
 class DummyMessage:
-    async def edit(self, *args, **kwargs): pass
-    async def reply(self, *args, **kwargs): pass
-    async def delete(self, *args, **kwargs): pass
-    async def forward(self, *args, **kwargs): return self
+    async def edit(self, *args, **kwargs):
+        pass
+
+    async def reply(self, *args, **kwargs):
+        pass
+
+    async def delete(self, *args, **kwargs):
+        pass
+
+    async def forward(self, *args, **kwargs):
+        return self
 
 
 async def download(url, path):
@@ -129,9 +133,6 @@ async def async_generator(iterable):
         yield item
 
 
-# ==========================================
-# ===== دوال مساعدة لإنشاء الألبومات ========
-# ==========================================
 def chunk_list(lst, n):
     return [lst[i:i + n] for i in range(0, len(lst), n)]
 
@@ -159,7 +160,6 @@ async def send_album_batch(unzip_bot, chat_id, batch, caption_msg=""):
 
 async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_type, index):
     user_id = query.from_user.id
-    
     if "/" in str(folder_id):
         file_path = f"{folder_id}/extracted"
         base_folder = folder_id
@@ -173,21 +173,29 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
     active_log_msg = DummyMessage()
 
     if not paths:
-        try: shutil.rmtree(base_folder)
-        except: pass
+        try:
+            shutil.rmtree(base_folder)
+        except:
+            pass
         await del_ongoing_task(user_id)
-        try: 
+        try:
             await query.message.delete()
             await unzip_bot.send_message(chat_id=int(c_id), text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME)
-        except: pass
+        except:
+            pass
         return
 
-    vids, imgs, others = [], [], []
+    vids = []
+    imgs = []
+    others = []
     for p in paths:
         ext = p.lower().split('.')[-1]
-        if ext in ['mp4', 'mov', 'mkv', 'avi']: vids.append(p)
-        elif ext in ['jpg', 'jpeg', 'png', 'webp', 'gif']: imgs.append(p)
-        else: others.append(p)
+        if ext in ['mp4', 'mov', 'mkv', 'avi']:
+            vids.append(p)
+        elif ext in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+            imgs.append(p)
+        else:
+            others.append(p)
 
     vid_chunks = chunk_list(vids, 10)
     img_chunks = chunk_list(imgs, 10)
@@ -195,32 +203,60 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
 
     if current_type == "video" and index < len(vid_chunks):
         batch = vid_chunks[index]
-        msg = await unzip_bot.send_message(chat_id=int(c_id), text=f"⚡️ Sending Video Album ({index + 1}/{len(vid_chunks)}) ...")
+        msg = await unzip_bot.send_message(
+            chat_id=int(c_id), text=f"⚡️ Sending Video Album ({index + 1}/{len(vid_chunks)}) ..."
+        )
         
-        success = await send_album_batch(unzip_bot, int(c_id), batch, f"📁 Video Album {index+1} / {len(vid_chunks)}")
+        success = await send_album_batch(
+            unzip_bot, int(c_id), batch, f"📁 Video Album {index+1} / {len(vid_chunks)}"
+        )
         
         if not success:
             for file in batch:
-                await send_file(unzip_bot=unzip_bot, c_id=int(c_id), doc_f=file, query=query, full_path=base_folder, log_msg=active_log_msg, split=False)
+                await send_file(
+                    unzip_bot=unzip_bot,
+                    c_id=int(c_id),
+                    doc_f=file,
+                    query=query,
+                    full_path=base_folder,
+                    log_msg=active_log_msg,
+                    split=False
+                )
 
         next_idx = index + 1
         if next_idx < len(vid_chunks):
-            nxt_tp, btn_text = "video", f"Next Video Album ({next_idx + 1}) ⏭"
+            nxt_tp = "video"
+            btn_text = f"Next Video Album ({next_idx + 1}) ⏭"
         elif imgs:
-            nxt_tp, next_idx, btn_text = "image", 0, f"Start Image Albums (Total: {len(img_chunks)}) 🖼"
+            nxt_tp = "image"
+            next_idx = 0
+            btn_text = f"Start Image Albums (Total: {len(img_chunks)}) 🖼"
         elif others:
-            nxt_tp, next_idx, btn_text = "other", 0, f"Upload Other Files ({len(others)}) 📄"
+            nxt_tp = "other"
+            next_idx = 0
+            btn_text = f"Upload Other Files ({len(others)}) 📄"
         else:
-            nxt_tp, next_idx, btn_text = "done", 0, "Finish Sequence ✅"
+            nxt_tp = "done"
+            next_idx = 0
+            btn_text = "Finish Sequence ✅"
 
-        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_name_only}|{c_id}|{nxt_tp}|{next_idx}")]]
+        buttons = [
+            [InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_name_only}|{c_id}|{nxt_tp}|{next_idx}")]
+        ]
+        
         if len(vid_chunks) > 1 and current_type == "video":
-            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_name_only}|{c_id}|video|{len(vid_chunks)}")])
-        buttons.append([InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")])
+            buttons.append(
+                [InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_name_only}|{c_id}|video|{len(vid_chunks)}")]
+            )
+            
+        buttons.append([InlineKeyboardButton("Cancel ❌", callback_data=f"cancel_folder|{folder_name_only}")])
         markup = InlineKeyboardMarkup(buttons)
         
-        try: await msg.delete()
-        except: pass
+        try:
+            await msg.delete()
+        except:
+            pass
+            
         await unzip_bot.send_message(
             chat_id=int(c_id), 
             text=f"✅ Video Album **{index + 1}** out of **{len(vid_chunks)}** sent successfully.", 
@@ -230,30 +266,56 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
 
     elif current_type == "image" and index < len(img_chunks):
         batch = img_chunks[index]
-        msg = await unzip_bot.send_message(chat_id=int(c_id), text=f"⚡️ Sending Image Album ({index + 1}/{len(img_chunks)}) ...")
+        msg = await unzip_bot.send_message(
+            chat_id=int(c_id), text=f"⚡️ Sending Image Album ({index + 1}/{len(img_chunks)}) ..."
+        )
         
-        success = await send_album_batch(unzip_bot, int(c_id), batch, f"📁 Image Album {index+1} / {len(img_chunks)}")
+        success = await send_album_batch(
+            unzip_bot, int(c_id), batch, f"📁 Image Album {index+1} / {len(img_chunks)}"
+        )
         
         if not success:
             for file in batch:
-                await send_file(unzip_bot=unzip_bot, c_id=int(c_id), doc_f=file, query=query, full_path=base_folder, log_msg=active_log_msg, split=False)
+                await send_file(
+                    unzip_bot=unzip_bot,
+                    c_id=int(c_id),
+                    doc_f=file,
+                    query=query,
+                    full_path=base_folder,
+                    log_msg=active_log_msg,
+                    split=False
+                )
 
         next_idx = index + 1
         if next_idx < len(img_chunks):
-            nxt_tp, btn_text = "image", f"Next Image Album ({next_idx + 1}) ⏭"
+            nxt_tp = "image"
+            btn_text = f"Next Image Album ({next_idx + 1}) ⏭"
         elif others:
-            nxt_tp, next_idx, btn_text = "other", 0, f"Upload Other Files ({len(others)}) 📄"
+            nxt_tp = "other"
+            next_idx = 0
+            btn_text = f"Upload Other Files ({len(others)}) 📄"
         else:
-            nxt_tp, next_idx, btn_text = "done", 0, "Finish Sequence ✅"
+            nxt_tp = "done"
+            next_idx = 0
+            btn_text = "Finish Sequence ✅"
 
-        buttons = [[InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_name_only}|{c_id}|{nxt_tp}|{next_idx}")]]
+        buttons = [
+            [InlineKeyboardButton(btn_text, callback_data=f"nxtalb|{folder_name_only}|{c_id}|{nxt_tp}|{next_idx}")]
+        ]
+        
         if len(img_chunks) > 1 and current_type == "image":
-            buttons.append([InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_name_only}|{c_id}|image|{len(img_chunks)}")])
-        buttons.append([InlineKeyboardButton("Cancel ❌", callback_data="cancel_dis")])
+            buttons.append(
+                [InlineKeyboardButton("🔢 Jump to Album...", callback_data=f"jumpalb|{folder_name_only}|{c_id}|image|{len(img_chunks)}")]
+            )
+            
+        buttons.append([InlineKeyboardButton("Cancel ❌", callback_data=f"cancel_folder|{folder_name_only}")])
         markup = InlineKeyboardMarkup(buttons)
         
-        try: await msg.delete()
-        except: pass
+        try:
+            await msg.delete()
+        except:
+            pass
+            
         await unzip_bot.send_message(
             chat_id=int(c_id), 
             text=f"✅ Image Album **{index + 1}** out of **{len(img_chunks)}** sent successfully.", 
@@ -262,39 +324,76 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         return
 
     elif current_type == "other":
-        try: await query.message.edit(f"⏳ Sending {len(others)} Other Files Individually... 📄")
-        except: pass
+        try:
+            await query.message.edit(f"⏳ Sending {len(others)} Other Files Individually... 📄")
+        except:
+            pass
         
         for file in others:
             fsize = await get_size(file)
-            split = fsize > Config.TG_MAX_SIZE
+            split = False
+            
+            if fsize > Config.TG_MAX_SIZE:
+                split = True
+                
             if not split:
-                await send_file(unzip_bot=unzip_bot, c_id=int(c_id), doc_f=file, query=query, full_path=base_folder, log_msg=active_log_msg, split=False)
+                await send_file(
+                    unzip_bot=unzip_bot,
+                    c_id=int(c_id),
+                    doc_f=file,
+                    query=query,
+                    full_path=base_folder,
+                    log_msg=active_log_msg,
+                    split=False
+                )
             else:
                 fname = file.split("/")[-1]
-                smessage = await unzip_bot.send_message(chat_id=user_id, text=Messages.SPLITTING.format(fname))
+                smessage = await unzip_bot.send_message(
+                    chat_id=user_id, text=Messages.SPLITTING.format(fname)
+                )
                 splitteddir = f"{Config.DOWNLOAD_LOCATION}/splitted/{user_id}"
                 os.makedirs(splitteddir, exist_ok=True)
                 splittedfiles = await split_files(file, f"{splitteddir}/{fname}", Config.TG_MAX_SIZE)
+                
                 if not splittedfiles:
-                    try: shutil.rmtree(splitteddir)
-                    except: pass
+                    try:
+                        shutil.rmtree(splitteddir)
+                    except:
+                        pass
                     continue
+                    
                 await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
                 async for s_file in async_generator(splittedfiles):
-                    await send_file(unzip_bot=unzip_bot, c_id=user_id, doc_f=s_file, query=query, full_path=splitteddir, log_msg=active_log_msg, split=True)
-                try: shutil.rmtree(splitteddir); await smessage.delete()
-                except: pass
+                    await send_file(
+                        unzip_bot=unzip_bot,
+                        c_id=user_id,
+                        doc_f=s_file,
+                        query=query,
+                        full_path=splitteddir,
+                        log_msg=active_log_msg,
+                        split=True
+                    )
+                try:
+                    shutil.rmtree(splitteddir)
+                    await smessage.delete()
+                except:
+                    pass
+                    
         current_type = "done"
 
     if current_type == "done":
-        try: shutil.rmtree(base_folder)
-        except: pass
+        try:
+            shutil.rmtree(base_folder)
+        except:
+            pass
         await update_uploaded(user_id, upload_count=1)
         await del_ongoing_task(user_id)
-        try: 
-            await unzip_bot.send_message(chat_id=int(c_id), text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME)
-        except: pass
+        try:
+            await unzip_bot.send_message(
+                chat_id=int(c_id), text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME
+            )
+        except:
+            pass
 
 
 # Callbacks
@@ -302,13 +401,18 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
 async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
     uid = query.from_user.id
     
-    # تحديد حد المهام المتزامنة لـ 5 مهام لكل شخص
-    if uid != Config.BOT_OWNER:
+    if uid != Config.BOT_OWNER:  # skipcq: PTC-W0048
         ogtasks = await get_ongoing_tasks()
-        user_tasks_count = sum(1 for ogtask in ogtasks if ogtask.get("user_id") == uid)
-        
+        user_tasks_count = 0
+        for ogtask in ogtasks:
+            if ogtask.get("user_id") == uid:
+                user_tasks_count += 1
+                
         if user_tasks_count >= 5:
-            await answer_query(query, "❌ You have reached the maximum limit of 5 concurrent tasks. Please wait for them to finish.", unzip_client=unzip_bot)
+            await unzip_bot.send_message(
+                chat_id=uid,
+                text="❌ You have reached the maximum limit of 5 concurrent tasks. Please wait for them to finish."
+            )
             return
 
     if uid != Config.BOT_OWNER and await get_maintenance():
@@ -317,7 +421,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
     sent_files = 0
     global log_msg
-    log_msg = DummyMessage() # تجاهل قناة اللوجات لمنع الاعطال
+    log_msg = DummyMessage()
 
     if query.data == "megoinhome":
         await query.edit_message_text(
@@ -435,16 +539,19 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         await set_upload_mode(user_id, mode)
         await answer_query(query, Messages.CHANGED_UPLOAD_MODE_TXT.format(mode))
 
+
     # ================================================
-    # 2. معالج "فك الضغط اليدوي" مع دعم الباسوورد
+    # Archive Action (Extraction Logic)
     # ================================================
     elif query.data.startswith("archive_action"):
-        # Format: archive_action|type|user_id|folder_id|PasswordFlag(P/N)
         data = query.data.split("|")
         action_type = data[1]
         target_uid = int(data[2])
         folder_id = data[3]
-        needs_password = True if len(data) > 4 and data[4] == "P" else False
+        
+        needs_password = False
+        if len(data) > 4 and data[4] == "P":
+            needs_password = True
         
         download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_id}"
         ext_files_dir = f"{download_path}/extracted"
@@ -455,10 +562,15 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
         if action_type == "extract":
             try:
-                files_in_dir = [f for f in os.listdir(download_path) if f != "extracted"]
+                files_in_dir = []
+                for f in os.listdir(download_path):
+                    if f != "extracted":
+                        files_in_dir.append(f)
+                        
                 if not files_in_dir:
                     await query.message.edit("❌ File not found. It might be deleted.")
                     return
+                    
                 archive_name = files_in_dir[0]
                 archive_path = f"{download_path}/{archive_name}"
             except Exception as e:
@@ -475,14 +587,21 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                         timeout=60
                     )
                     password = pwd_msg.text
-                    try: await pwd_msg.delete()
-                    except: pass
+                    try:
+                        await pwd_msg.delete()
+                    except:
+                        pass
                 except asyncio.TimeoutError:
-                    await query.message.edit("❌ **Timeout!** You didn't send the password in time.\nPlease click Extract Now to try again.", reply_markup=query.message.reply_markup)
+                    await query.message.edit(
+                        "❌ **Timeout!** You didn't send the password in time.\nPlease click Extract Now to try again.", 
+                        reply_markup=query.message.reply_markup
+                    )
                     return
 
-            try: await query.message.edit(Messages.PROCESSING2)
-            except: pass
+            try:
+                await query.message.edit(Messages.PROCESSING2)
+            except:
+                pass
                 
             os.makedirs(ext_files_dir, exist_ok=True)
             
@@ -504,28 +623,38 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     await query.message.edit("❌ **Extraction failed!**\nEither the password was wrong, or the file is corrupted.")
                     shutil.rmtree(ext_files_dir)
                     await del_ongoing_task(target_uid)
-                except: pass
+                except:
+                    pass
                 return
 
             paths = await get_files(path=ext_files_dir)
             if not paths:
-                try: await query.message.edit("❌ **Extraction failed or empty!**\nIf the file is encrypted, please select *Extract with password* when uploading.")
-                except: pass
+                try:
+                    await query.message.edit("❌ **Extraction failed or empty!**\nIf the file is encrypted, please select *Extract with password* when uploading.")
+                except:
+                    pass
                 shutil.rmtree(ext_files_dir)
                 await del_ongoing_task(target_uid)
                 return
 
             extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
-            if extrtime == "": extrtime = "1s"
+            if extrtime == "":
+                extrtime = "1s"
 
-            try: os.remove(archive_path)
-            except: pass
+            try:
+                os.remove(archive_path)
+            except:
+                pass
 
             chat_id = query.message.chat.id
-            upload_all_btn = InlineKeyboardButton("📤 Upload All (Albums) 📤", callback_data=f"ext_a|{folder_id}|{chat_id}|NONE|0")
-            cancel_btn = InlineKeyboardButton("❌ Cancel & Delete", callback_data="cancel_dis")
             
-            simple_markup = InlineKeyboardMarkup([[upload_all_btn], [cancel_btn]])
+            upload_all_btn = InlineKeyboardButton("📤 Upload All (Albums) 📤", callback_data=f"ext_a|{folder_id}|{chat_id}|NONE|0")
+            cancel_btn = InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")
+            
+            simple_markup = InlineKeyboardMarkup([
+                [upload_all_btn], 
+                [cancel_btn]
+            ])
 
             await query.message.edit(
                 f"✅ Extraction completed in {extrtime}!\n\n**Ready to upload:**", 
@@ -533,8 +662,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             )
 
         elif action_type == "cancel":
-            try: shutil.rmtree(download_path)
-            except: pass
+            try:
+                shutil.rmtree(download_path)
+            except:
+                pass
             await del_ongoing_task(target_uid)
             await query.message.edit("❌ Operation Cancelled. Archive deleted.")
 
@@ -547,6 +678,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         s_id = await get_merge_task_message_id(user_id)
         merge_msg = await query.message.edit(Messages.PROCESSING_TASK)
         download_path = f"{Config.DOWNLOAD_LOCATION}/{user_id}/merge"
+        
         if s_id and (m_id - s_id) > 1:
             files_array = list(range(s_id, m_id))
             try:
@@ -561,10 +693,12 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 except:
                     pass
                 return
+                
             length = len(messages_array)
             os.makedirs(download_path, exist_ok=True)
             rs_time = time()
             newarray = []
+            
             await merge_msg.edit(Messages.PROCESS_MSGS.format(length))
             for message in messages_array:
                 if message.document is None:
@@ -572,6 +706,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 else:
                     if message.from_user.id == user_id:
                         newarray.append(message)
+                        
             length = len(newarray)
             if length == 0:
                 await answer_query(query, Messages.NO_MERGE_TASK)
@@ -582,12 +717,12 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 except:
                     pass
                 return
+                
             i = 0
             async_newarray = async_generator(newarray)
             async for message in async_newarray:
                 i += 1
                 fname = message.document.file_name
-                pass 
                 location = f"{download_path}/{fname}"
                 s_time = time()
                 await message.download(
@@ -600,6 +735,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                         unzip_bot,
                     ),
                 )
+                
             e_time = time()
             dltime = TimeFormatter(round(e_time - rs_time) * 1000)
             if dltime == "":
@@ -636,11 +772,13 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             except:
                 pass
             return
+            
         splitted_data = query.data.split("|")
         try:
             await query.message.edit(Messages.PROCESSING_TASK)
         except:
             pass
+            
         if splitted_data[1] == "with_pass":
             password = await unzip_bot.ask(
                 chat_id=query.message.chat.id,
@@ -657,6 +795,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             ext_s_time = time()
             extractor = await merge_files(iinput=file, ooutput=ext_files_dir)
             ext_e_time = time()
+            
         if any(err in extractor for err in ERROR_MSGS):
             try:
                 await query.message.edit(Messages.EXT_FAILED_TXT)
@@ -674,6 +813,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 shutil.rmtree(ext_files_dir)
                 await del_ongoing_task(user_id)
             return
+            
         paths = await get_files(path=ext_files_dir)
         if not paths:
             await unzip_bot.send_message(
@@ -694,6 +834,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
         if extrtime == "":
             extrtime = "1s"
+            
         await answer_query(
             query, Messages.EXT_OK_TXT.format(extrtime), unzip_client=unzip_bot
         )
@@ -751,6 +892,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     await del_ongoing_task(user_id)
                     return
 
+
     elif query.data.startswith("extract_file"):
         user_id = query.from_user.id
         start_time = time()
@@ -759,6 +901,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         folder_unique_id = f"{user_id}_{int(time())}"
         download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_unique_id}"
         ext_files_dir = f"{download_path}/extracted"
+        
         r_message = query.message.reply_to_message
         splitted_data = query.data.split("|")
         
@@ -766,7 +909,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await query.message.edit(Messages.PROCESSING_TASK)
         except:
             pass
-            
+
         global archive_msg
 
         try:
@@ -776,17 +919,20 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     await del_ongoing_task(user_id)
                     await query.message.edit(Messages.INVALID_URL)
                     return
+                    
                 if re.match(telegram_url_pattern, url):
                     r_message = await unzip_bot.get_messages(
                         chat_id=url.split("/")[-2], message_ids=int(url.split("/")[-1])
                     )
                     splitted_data[1] = "tg_file"
+                    
                 if splitted_data[1] == "url":
                     s = ClientSession()
                     async with s as session:
                         unzip_head = await session.head(url, allow_redirects=True)
                         f_size = unzip_head.headers.get("content-length")
                         u_file_size = f_size if f_size else "undefined"
+                        
                         if u_file_size != "undefined" and not sufficient_disk_space(
                             int(u_file_size)
                         ):
@@ -801,11 +947,13 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                             await del_ongoing_task(user_id)
                             await query.message.edit(Messages.NOT_AN_ARCHIVE)
                             return
+                            
                         content_disposition = unzip_head.headers.get(
                             "content-disposition"
                         )
                         rfnamebro = ""
                         real_filename = ""
+                        
                         if content_disposition:
                             headers = Parser(policy=default).parsestr(
                                 f"Content-Disposition: {content_disposition}"
@@ -815,9 +963,11 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                                 rfnamebro = unquote(real_filename)
                         if rfnamebro == "":
                             rfnamebro = unquote(url.split("/")[-1])
+                            
                         if unzip_resp.status == 200:
                             os.makedirs(download_path, exist_ok=True)
                             s_time = time()
+                            
                             if real_filename:
                                 archive = os.path.join(download_path, real_filename)
                                 fext = real_filename.split(".")[-1].casefold()
@@ -826,6 +976,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                                 fname = fname.split("?")[0]
                                 fext = fname.split(".")[-1].casefold()
                                 archive = f"{download_path}/{fname}"
+                                
                             if (
                                 splitted_data[2] not in ["thumb", "thumbrename"]
                                 and fext not in extentions_list["archive"]
@@ -837,25 +988,30 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                                 except:
                                     pass
                                 return
+                                
                             await answer_query(
                                 query, Messages.PROCESSING2, unzip_client=unzip_bot
                             )
                             
                             dled = await download_with_progress(
-                                    url, archive, query.message, unzip_bot
-                                )
+                                url, archive, query.message, unzip_bot
+                            )
+                            
                             if isinstance(dled, bool) and not dled:
                                 return
                                 
                             e_time = time()
                             dltime = TimeFormatter(round(e_time - s_time) * 1000)
-                            if dltime == "": dltime = "1s"
+                            if dltime == "":
+                                dltime = "1s"
 
                             pass_flag = "P" if splitted_data[2] == "with_pass" else "N"
+
                             markup = InlineKeyboardMarkup([
                                 [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}|{pass_flag}")],
                                 [InlineKeyboardButton("❌ Cancel", callback_data=f"archive_action|cancel|{user_id}|{folder_unique_id}")]
                             ])
+                            
                             await query.message.edit(
                                 text=f"✅ Downloaded in {dltime}.\n**Choose action:**",
                                 reply_markup=markup
@@ -867,6 +1023,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     await del_ongoing_task(user_id)
                     await query.message.edit(Messages.GIVE_ARCHIVE)
                     return
+                    
                 fname = r_message.document.file_name
                 rfnamebro = fname
 
@@ -892,6 +1049,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 s_time = time()
                 location = f"{download_path}/{fname}"
                 LOGGER.info("location: %s", location)
+                
                 archive = await r_message.download(
                     file_name=location,
                     progress=progress_for_pyrogram,
@@ -909,10 +1067,16 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 await answer_query(query, Messages.QUERY_PARSE_ERR, answer_only=True, unzip_client=unzip_bot)
                 return
 
+            if splitted_data[2].startswith("thumb"):
+                # Handle thumbnail specific options untouched
+                pass
+
             dltime = TimeFormatter(round(e_time - s_time) * 1000)
-            if dltime == "": dltime = "1s"
+            if dltime == "":
+                dltime = "1s"
             
             pass_flag = "P" if splitted_data[2] == "with_pass" else "N"
+            
             markup = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📦 Extract Now", callback_data=f"archive_action|extract|{user_id}|{folder_unique_id}|{pass_flag}")],
                 [InlineKeyboardButton("❌ Cancel / Delete", callback_data=f"archive_action|cancel|{user_id}|{folder_unique_id}")]
@@ -926,8 +1090,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         except Exception as e:
             await del_ongoing_task(user_id)
             LOGGER.error(e)
-            try: await query.message.edit(f"Error: {e}")
-            except: pass
+            try:
+                await query.message.edit(f"Error: {e}")
+            except:
+                pass
 
 
     elif query.data.startswith("ext_f"):
@@ -935,14 +1101,17 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         user_id = query.from_user.id
         spl_data = query.data.split("|")
         file_path = f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}/extracted"
+        
         try:
             urled = spl_data[4] if isinstance(spl_data[4], bool) else False
         except:
             urled = False
+            
         if urled:
             paths = spl_data[5].namelist()
         else:
             paths = await get_files(path=file_path)
+            
         if not paths and not urled:
             if os.path.isdir(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}"):
                 shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
@@ -951,19 +1120,23 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 text=Messages.NO_FILE_LEFT, reply_markup=Buttons.RATE_ME
             )
             return
+            
         LOGGER.info("ext_f paths : " + str(paths))
         try:
             await query.answer(Messages.SENDING_FILE)
             await query.message.edit(text=Messages.UPLOADING_THIS_FILE)
         except:
             pass
+            
         sent_files += 1
         if urled:
             file = spl_data[5].open(paths[int(spl_data[3])])
         else:
             file = paths[int(spl_data[3])]
+            
         fsize = await get_size(file)
         split = False
+        
         if fsize <= Config.TG_MAX_SIZE:
             await send_file(
                 unzip_bot=unzip_bot,
@@ -976,6 +1149,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             )
         else:
             split = True
+            
         if split:
             fname = file.split("/")[-1]
             smessage = await unzip_bot.send_message(
@@ -985,6 +1159,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             os.makedirs(splitteddir, exist_ok=True)
             ooutput = f"{splitteddir}/{fname}"
             splittedfiles = await split_files(file, ooutput, Config.TG_MAX_SIZE)
+            
             LOGGER.info(splittedfiles)
             if not splittedfiles:
                 try:
@@ -994,6 +1169,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 await del_ongoing_task(user_id)
                 await smessage.edit(Messages.ERR_SPLIT)
                 return
+                
             await smessage.edit(Messages.SEND_ALL_PARTS.format(fname))
             async_splittedfiles = async_generator(splittedfiles)
             async for file in async_splittedfiles:
@@ -1018,10 +1194,12 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 pass
 
         await query.message.edit(Messages.REFRESHING)
+        
         if urled:
             rpaths = paths.remove(paths[int(spl_data[3])])
         else:
             rpaths = await get_files(path=file_path)
+            
         if not rpaths:
             try:
                 shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{spl_data[1]}")
@@ -1032,6 +1210,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 text=Messages.NO_FILE_LEFT, reply_markup=Buttons.RATE_ME
             )
             return
+            
         if urled:
             try:
                 i_e_buttons = await make_keyboard(
@@ -1074,6 +1253,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     Messages.UNABLE_GATHER_FILES,
                     reply_markup=empty_buttons,
                 )
+                
         await update_uploaded(user_id, upload_count=sent_files)
 
     elif query.data.startswith("ext_a"):
@@ -1095,8 +1275,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             paths = await get_files(path=file_path)
 
         if not paths and not urled:
-            try: shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{folder_id}")
-            except: pass
+            try:
+                shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{folder_id}")
+            except:
+                pass
             await del_ongoing_task(user_id)
             await query.message.edit(text=Messages.NO_FILE_LEFT, reply_markup=Buttons.RATE_ME)
             return
@@ -1114,25 +1296,36 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 os.makedirs(splitteddir, exist_ok=True)
                 splittedfiles = await split_files(file, f"{splitteddir}/{fname}", Config.TG_MAX_SIZE)
                 if not splittedfiles:
-                    try: shutil.rmtree(splitteddir)
-                    except: pass
+                    try:
+                        shutil.rmtree(splitteddir)
+                    except:
+                        pass
                     continue
                 async for s_file in async_generator(splittedfiles):
                     await send_file(unzip_bot=unzip_bot, c_id=user_id, doc_f=s_file, query=query, full_path=splitteddir, log_msg=DummyMessage(), split=True)
-                try: shutil.rmtree(splitteddir)
-                except: pass
+                try:
+                    shutil.rmtree(splitteddir)
+                except:
+                    pass
             
             await del_ongoing_task(user_id)
-            try: await query.message.edit(text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME)
-            except: pass
+            try:
+                await query.message.edit(text=Messages.UPLOADED, reply_markup=Buttons.RATE_ME)
+            except:
+                pass
             return
 
-        vids, imgs, others = [], [], []
+        vids = []
+        imgs = []
+        others = []
         for p in paths:
             ext = p.lower().split('.')[-1]
-            if ext in ['mp4', 'mov', 'mkv', 'avi']: vids.append(p)
-            elif ext in ['jpg', 'jpeg', 'png', 'webp', 'gif']: imgs.append(p)
-            else: others.append(p)
+            if ext in ['mp4', 'mov', 'mkv', 'avi']:
+                vids.append(p)
+            elif ext in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+                imgs.append(p)
+            else:
+                others.append(p)
 
         vid_chunks = chunk_list(vids, 10)
         img_chunks = chunk_list(imgs, 10)
@@ -1144,11 +1337,13 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             f"📄 **Other Standard Files:** {len(others)}\n\n"
             "⌛ *Starting to process grouped albums...*"
         )
+        
         await query.message.edit(text=stats_msg)
         await asyncio.sleep(1.5)
 
         start_tp = "video" if vids else ("image" if imgs else "other")
         await process_album_pagination(query, unzip_bot, folder_id, c_id, start_tp, 0)
+
 
     elif query.data.startswith("nxtalb"):
         data = query.data.split("|")
@@ -1156,7 +1351,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         c_id = data[2]
         tp = data[3]
         idx = int(data[4])
+        
         await process_album_pagination(query, unzip_bot, f_id, c_id, tp, idx)
+
 
     elif query.data.startswith("jumpalb"):
         data = query.data.split("|")
@@ -1166,8 +1363,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         max_chunks = int(data[4])
         user_id = query.from_user.id
 
-        try: await query.message.delete()
-        except: pass
+        try:
+            await query.message.delete()
+        except:
+            pass
 
         try:
             ask_msg = await unzip_bot.ask(
@@ -1198,28 +1397,49 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         except asyncio.TimeoutError:
             await unzip_bot.send_message(chat_id=user_id, text="⏱ Timeout! You took too long to send the number. Click the Jump button again if you still want to skip.")
 
+    # ================================================
+    # Cancellation Logics
+    # ================================================
+    elif query.data.startswith("cancel_folder"):
+        data = query.data.split("|")
+        folder_id = data[1]
+        user_id = query.from_user.id
+        
+        try:
+            shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{folder_id}")
+        except:
+            pass
+        
+        await del_ongoing_task(user_id)
+        
+        try:
+            await query.message.edit("❌ **Process Cancelled & Files deleted.**")
+        except:
+            pass
+
+
     elif query.data == "cancel_dis":
         uid = query.from_user.id
         await del_ongoing_task(uid)
         await del_merge_task(uid)
         try:
-            await query.message.edit(
-                Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED)
-            )
-            # حذف المجلد الأساسي القديم إن وجد
-            try: shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{uid}")
-            except: pass
+            await query.message.edit(Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED))
             
-            # مسح كافة المجلدات المرتبطة بالمستخدم لمنع التكدس (user_id_*)
-            for folder in glob.glob(f"{Config.DOWNLOAD_LOCATION}/{uid}_*"):
-                try: shutil.rmtree(folder)
-                except: pass
+            try:
+                shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{uid}")
+            except:
+                pass
                 
+            for folder in glob.glob(f"{Config.DOWNLOAD_LOCATION}/{uid}_*"):
+                try:
+                    shutil.rmtree(folder)
+                except:
+                    pass
+                    
             await update_uploaded(user_id=uid, upload_count=sent_files)
         except:
             await unzip_bot.send_message(
-                chat_id=uid,
-                text=Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED),
+                chat_id=uid, text=Messages.CANCELLED_TXT.format(Messages.PROCESS_CANCELLED)
             )
             return
 
