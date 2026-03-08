@@ -592,9 +592,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     except:
                         pass
                 except asyncio.TimeoutError:
-                    # تحرير المهمة فوراً في حال الانتهاء للوقت لكي لا يعلق المستخدم
                     await del_ongoing_task(target_uid)
-                    
                     retry_markup = InlineKeyboardMarkup([
                         [InlineKeyboardButton("🔄 Try Password Again", callback_data=f"archive_action|extract|{target_uid}|{folder_id}|P")],
                         [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
@@ -625,19 +623,16 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     extractor = "Error"
                     ext_e_time = time()
             
-            # قراءة المجلد بعد الاستخراج
             paths = await get_files(path=ext_files_dir)
             
-            # النظام الجديد للاختبار اللانهائي لكلمات المرور
             if any(err in extractor for err in ERROR_MSGS) or not paths:
                 try:
-                    shutil.rmtree(ext_files_dir) # نحذف الملفات الفاشلة فقط ولا نحذف الأرشيف الأساسي
+                    shutil.rmtree(ext_files_dir) 
                 except:
                     pass
                     
-                await del_ongoing_task(target_uid) # نحرر حجز المهمة
+                await del_ongoing_task(target_uid) 
                 
-                # إظهار زر طلب باسوورد إجباري
                 retry_markup = InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔄 Enter Password Again", callback_data=f"archive_action|extract|{target_uid}|{folder_id}|P")],
                     [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
@@ -652,7 +647,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     pass
                 return
 
-            # نجاح عملية الفك!
             extrtime = TimeFormatter(round(ext_e_time - ext_s_time) * 1000)
             if extrtime == "":
                 extrtime = "1s"
@@ -686,6 +680,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await query.message.edit("❌ Operation Cancelled. Archive deleted.")
 
 
+    # ================================================
+    # Merge Logics (Updated for New UI)
+    # ================================================
     elif query.data == "merge_this":
         user_id = query.from_user.id
         m_id = query.message.id
@@ -693,7 +690,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         await add_ongoing_task(user_id, start_time, "merge")
         s_id = await get_merge_task_message_id(user_id)
         merge_msg = await query.message.edit(Messages.PROCESSING_TASK)
-        download_path = f"{Config.DOWNLOAD_LOCATION}/{user_id}/merge"
+        
+        folder_unique_id = f"merge_{user_id}_{int(time())}"
+        download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_unique_id}"
         
         if s_id and (m_id - s_id) > 1:
             files_array = list(range(s_id, m_id))
@@ -705,7 +704,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 await del_ongoing_task(user_id)
                 await del_merge_task(user_id)
                 try:
-                    shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{user_id}")
+                    shutil.rmtree(download_path)
                 except:
                     pass
                 return
@@ -729,7 +728,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 await del_ongoing_task(user_id)
                 await del_merge_task(user_id)
                 try:
-                    shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{user_id}")
+                    shutil.rmtree(download_path)
                 except:
                     pass
                 return
@@ -756,10 +755,17 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             dltime = TimeFormatter(round(e_time - rs_time) * 1000)
             if dltime == "":
                 dltime = "1 s"
-            await merge_msg.edit(Messages.AFTER_OK_MERGE_DL_TXT.format(i, dltime))
+            
+            # Use custom merge buttons integrated with infinite password retry logic
+            merge_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📦 Extract Merged Archive", callback_data=f"merged|no_pass|{folder_unique_id}")],
+                [InlineKeyboardButton("🔐 Extract with Password", callback_data=f"merged|with_pass|{folder_unique_id}")],
+                [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_unique_id}")]
+            ])
+            
             await merge_msg.edit(
-                text=Messages.CHOOSE_EXT_MODE_MERGE,
-                reply_markup=Buttons.CHOOSE_E_F_M__BTNS,
+                text=f"✅ **All parts downloaded in {dltime}.**\nWhat do you want to do?",
+                reply_markup=merge_markup
             )
             await del_merge_task(user_id)
         else:
@@ -767,83 +773,93 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await del_ongoing_task(user_id)
             await del_merge_task(user_id)
             try:
-                shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{user_id}")
+                shutil.rmtree(download_path)
             except:
                 pass
 
+
     elif query.data.startswith("merged"):
         user_id = query.from_user.id
-        download_path = f"{Config.DOWNLOAD_LOCATION}/{user_id}/merge"
-        ext_files_dir = f"{Config.DOWNLOAD_LOCATION}/{user_id}/extracted"
+        data_parts = query.data.split("|")
+        pass_mode = data_parts[1]
+        folder_id = data_parts[2] if len(data_parts) > 2 else f"merge_{user_id}_legacy"
+        
+        download_path = f"{Config.DOWNLOAD_LOCATION}/{folder_id}"
+        ext_files_dir = f"{download_path}/extracted"
         os.makedirs(ext_files_dir, exist_ok=True)
+        
         try:
             files = await get_files(download_path)
+            # Find the main file part (e.g., .001 or .part01.rar) to initiate extraction
+            files.sort() # Sorting ensures we grab the first part
             file = files[0]
         except IndexError:
             await answer_query(query, Messages.NO_MERGE_TASK)
             await del_ongoing_task(user_id)
-            await del_merge_task(user_id)
             try:
-                shutil.rmtree(f"{Config.DOWNLOAD_LOCATION}/{user_id}")
+                shutil.rmtree(download_path)
             except:
                 pass
             return
             
-        splitted_data = query.data.split("|")
         try:
             await query.message.edit(Messages.PROCESSING_TASK)
         except:
             pass
             
-        if splitted_data[1] == "with_pass":
-            password = await unzip_bot.ask(
-                chat_id=query.message.chat.id,
-                text=Messages.PLS_SEND_PASSWORD,
-            )
-            ext_s_time = time()
-            extractor = await merge_files(
-                iinput=file,
-                ooutput=ext_files_dir,
-                password=password.text,
-            )
-            ext_e_time = time()
-        else:
-            ext_s_time = time()
-            extractor = await merge_files(iinput=file, ooutput=ext_files_dir)
-            ext_e_time = time()
-            
-        if any(err in extractor for err in ERROR_MSGS):
+        password = None
+        if pass_mode == "with_pass":
             try:
-                await query.message.edit(Messages.EXT_FAILED_TXT)
-                shutil.rmtree(ext_files_dir)
-                shutil.rmtree(download_path)
-                await del_ongoing_task(user_id)
-            except:
-                try:
-                    await query.message.delete()
-                except:
-                    pass
-                await unzip_bot.send_message(
-                    chat_id=query.message.chat.id, text=Messages.EXT_FAILED_TXT
+                pwd_msg = await unzip_bot.ask(
+                    chat_id=query.message.chat.id,
+                    text=Messages.PLS_SEND_PASSWORD,
+                    timeout=60
                 )
-                shutil.rmtree(ext_files_dir)
+                password = pwd_msg.text
+                try: await pwd_msg.delete() 
+                except: pass
+            except asyncio.TimeoutError:
                 await del_ongoing_task(user_id)
-            return
+                retry_markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Try Password Again", callback_data=f"merged|with_pass|{folder_id}")],
+                    [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
+                ])
+                await query.message.edit("❌ Timeout. Please try again.", reply_markup=retry_markup)
+                return
+        
+        ext_s_time = time()
+        if password:
+            extractor = await merge_files(iinput=file, ooutput=ext_files_dir, password=password)
+        else:
+            extractor = await merge_files(iinput=file, ooutput=ext_files_dir)
+        ext_e_time = time()
             
         paths = await get_files(path=ext_files_dir)
-        if not paths:
-            await unzip_bot.send_message(
-                chat_id=query.message.chat.id,
-                text=Messages.PASSWORD_PROTECTED,
-            )
-            await answer_query(query, Messages.EXT_FAILED_TXT, unzip_client=unzip_bot)
-            shutil.rmtree(ext_files_dir)
-            shutil.rmtree(download_path)
+        
+        if any(err in extractor for err in ERROR_MSGS) or not paths:
+            try:
+                shutil.rmtree(ext_files_dir)
+            except:
+                pass
             await del_ongoing_task(user_id)
+            
+            retry_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Try Password Again", callback_data=f"merged|with_pass|{folder_id}")],
+                [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
+            ])
+            try:
+                await query.message.edit(
+                    "❌ **Merge/Extraction failed!**\nEither password was wrong or files are corrupted.",
+                    reply_markup=retry_markup
+                )
+            except:
+                pass
             return
-
+            
+        # Clean up the merged archive parts to save space before uploading
         try:
-            shutil.rmtree(download_path)
+            for f in files:
+                os.remove(f)
         except:
             pass
 
@@ -851,62 +867,22 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         if extrtime == "":
             extrtime = "1s"
             
-        await answer_query(
-            query, Messages.EXT_OK_TXT.format(extrtime), unzip_client=unzip_bot
-        )
+        chat_id = query.message.chat.id
+        upload_all_btn = InlineKeyboardButton("📤 Upload All (Albums) 📤", callback_data=f"ext_a|{folder_id}|{chat_id}|NONE|0")
+        cancel_btn = InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")
+        
+        simple_markup = InlineKeyboardMarkup([
+            [upload_all_btn], 
+            [cancel_btn]
+        ])
 
         try:
-            i_e_buttons = await make_keyboard(
-                paths=paths,
-                user_id=user_id,
-                chat_id=query.message.chat.id,
-                unziphttp=False,
+            await query.message.edit(
+                f"✅ **Merge & Extraction completed in {extrtime}!**\n\nReady to upload:", 
+                reply_markup=simple_markup
             )
-            try:
-                await query.message.edit(
-                    Messages.SELECT_FILES, reply_markup=i_e_buttons
-                )
-            except ReplyMarkupTooLong:
-                empty_buttons = await make_keyboard_empty(
-                    user_id=user_id, chat_id=query.message.chat.id, unziphttp=False
-                )
-                await query.message.edit(
-                    Messages.UNABLE_GATHER_FILES,
-                    reply_markup=empty_buttons,
-                )
-        except:
-            try:
-                await query.message.delete()
-                i_e_buttons = await make_keyboard(
-                    paths=paths,
-                    user_id=user_id,
-                    chat_id=query.message.chat.id,
-                    unziphttp=False,
-                )
-                await unzip_bot.send_message(
-                    chat_id=query.message.chat.id,
-                    text=Messages.SELECT_FILES,
-                    reply_markup=i_e_buttons,
-                )
-            except:
-                try:
-                    await query.message.delete()
-                    empty_buttons = await make_keyboard_empty(
-                        user_id=user_id, chat_id=query.message.chat.id, unziphttp=False
-                    )
-                    await unzip_bot.send_message(
-                        chat_id=query.message.chat.id,
-                        text=Messages.UNABLE_GATHER_FILES,
-                        reply_markup=empty_buttons,
-                    )
-                except:
-                    await answer_query(
-                        query, Messages.EXT_FAILED_TXT, unzip_client=unzip_bot
-                    )
-                    shutil.rmtree(ext_files_dir)
-                    LOGGER.error(Messages.FATAL_ERROR)
-                    await del_ongoing_task(user_id)
-                    return
+        except Exception as e:
+            LOGGER.error(f"Merged output err: {e}")
 
 
     elif query.data.startswith("extract_file"):
