@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import glob
+import string
+import random
 
 import unzip_http
 
@@ -158,6 +160,34 @@ async def send_album_batch(unzip_bot, chat_id, batch, caption_msg=""):
         return False
 
 
+# ==============================================================
+# دالة إصلاح أسماء الملفات التي تحتوي حروف صينية/يابانية تالفة
+# ==============================================================
+def sanitize_filename(filepath):
+    dir_name = os.path.dirname(filepath)
+    base_name = os.path.basename(filepath)
+    
+    clean_name = base_name.encode('utf-8', 'ignore').decode('utf-8')
+    
+    if not clean_name or len(clean_name.strip()) == 0:
+        ext = os.path.splitext(base_name)[1]
+        random_str = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+        clean_name = f"recovered_file_{random_str}{ext}"
+        
+    if clean_name != base_name:
+        new_path = os.path.join(dir_name, clean_name)
+        try:
+            os.rename(
+                filepath.encode('utf-8', 'surrogateescape'), 
+                new_path.encode('utf-8', 'surrogateescape')
+            )
+            return new_path
+        except:
+            return filepath
+            
+    return filepath
+
+
 async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_type, index):
     user_id = query.from_user.id
     if "/" in str(folder_id):
@@ -169,10 +199,10 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         base_folder = f"{Config.DOWNLOAD_LOCATION}/{folder_id}"
         folder_name_only = folder_id
         
-    paths = await get_files(path=file_path)
+    raw_paths = await get_files(path=file_path)
     active_log_msg = DummyMessage()
 
-    if not paths:
+    if not raw_paths:
         try:
             shutil.rmtree(base_folder)
         except:
@@ -184,6 +214,11 @@ async def process_album_pagination(query, unzip_bot, folder_id, c_id, current_ty
         except:
             pass
         return
+
+    paths = []
+    for rp in raw_paths:
+        safe_p = sanitize_filename(rp)
+        paths.append(safe_p)
 
     vids = []
     imgs = []
@@ -681,7 +716,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
 
     # ================================================
-    # Merge Logics (Updated for New UI)
+    # Merge Logics
     # ================================================
     elif query.data == "merge_this":
         user_id = query.from_user.id
@@ -756,7 +791,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             if dltime == "":
                 dltime = "1 s"
             
-            # Use custom merge buttons integrated with infinite password retry logic
             merge_markup = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📦 Extract Merged Archive", callback_data=f"merged|no_pass|{folder_unique_id}")],
                 [InlineKeyboardButton("🔐 Extract with Password", callback_data=f"merged|with_pass|{folder_unique_id}")],
@@ -790,8 +824,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         
         try:
             files = await get_files(download_path)
-            # Find the main file part (e.g., .001 or .part01.rar) to initiate extraction
-            files.sort() # Sorting ensures we grab the first part
+            files.sort()
             file = files[0]
         except IndexError:
             await answer_query(query, Messages.NO_MERGE_TASK)
@@ -816,8 +849,10 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     timeout=60
                 )
                 password = pwd_msg.text
-                try: await pwd_msg.delete() 
-                except: pass
+                try: 
+                    await pwd_msg.delete() 
+                except: 
+                    pass
             except asyncio.TimeoutError:
                 await del_ongoing_task(user_id)
                 retry_markup = InlineKeyboardMarkup([
@@ -856,7 +891,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 pass
             return
             
-        # Clean up the merged archive parts to save space before uploading
         try:
             for f in files:
                 os.remove(f)
@@ -1306,10 +1340,18 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 pass
             return
 
+        # ============================================
+        # Cleaning bad Japanese names before album setup
+        # ============================================
+        cleaned_paths = []
+        for rp in paths:
+            safe_p = sanitize_filename(rp)
+            cleaned_paths.append(safe_p)
+
         vids = []
         imgs = []
         others = []
-        for p in paths:
+        for p in cleaned_paths:
             ext = p.lower().split('.')[-1]
             if ext in ['mp4', 'mov', 'mkv', 'avi']:
                 vids.append(p)
