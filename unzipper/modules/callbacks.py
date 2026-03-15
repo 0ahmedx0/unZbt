@@ -717,12 +717,20 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                 await async_rmtree(ext_files_dir) 
                 await del_ongoing_task(target_uid) 
                 
-                retry_markup = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Enter Password Again", callback_data=f"archive_action|extract|{target_uid}|{folder_id}|P")],
-                    [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
-                ])
+                # فحص الخطأ هل هو بسبب باسورد أو مجرد تلف/نقص 
+                err_buttons = []
+                if needs_password:
+                    err_text = "❌ **Extraction failed!**\nThe password was wrong, or the archive is fully corrupted."
+                    err_buttons.append([InlineKeyboardButton("🔄 Enter Password Again", callback_data=f"archive_action|extract|{target_uid}|{folder_id}|P")])
+                else:
+                    err_text = "❌ **Extraction failed!**\nThe files seem to be incomplete or fully corrupted.\n*(If you're 100% sure the files are fine, maybe they require a password?)*"
+                    err_buttons.append([InlineKeyboardButton("🔐 Try Extracting with Password", callback_data=f"archive_action|extract|{target_uid}|{folder_id}|P")])
+
+                err_buttons.append([InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")])
+                retry_markup = InlineKeyboardMarkup(err_buttons)
+                
                 try:
-                    await query.message.edit("❌ **Extraction failed!**\nEither password was wrong, archive is encrypted, or files are fully corrupted.", reply_markup=retry_markup)
+                    await query.message.edit(err_text, reply_markup=retry_markup)
                 except FloodWait as e:
                     await asyncio.sleep(e.value)
                 except:
@@ -942,15 +950,19 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             await async_rmtree(ext_files_dir)
             await del_ongoing_task(user_id)
             
-            retry_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Try Password Again", callback_data=f"merged|with_pass|{folder_id}")],
-                [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
-            ])
+            err_buttons = []
+            if pass_mode == "with_pass":
+                err_text = "❌ **Merge/Extraction failed!**\nWrong password, or parts are corrupted/missing."
+                err_buttons.append([InlineKeyboardButton("🔄 Try Password Again", callback_data=f"merged|with_pass|{folder_id}")])
+            else:
+                err_text = "❌ **Merge/Extraction failed!**\nThe files seem to be missing parts (e.g. 003 is missing), or fully corrupted.\n*(If you are 100% sure all parts are present, it might need a password!)*"
+                err_buttons.append([InlineKeyboardButton("🔐 Try Extracting with Password", callback_data=f"merged|with_pass|{folder_id}")])
+
+            err_buttons.append([InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")])
+            retry_markup = InlineKeyboardMarkup(err_buttons)
+            
             try:
-                await query.message.edit(
-                    "❌ **Merge/Extraction failed!**\nNo files extracted. Either password was wrong or files are fully corrupted.",
-                    reply_markup=retry_markup
-                )
+                await query.message.edit(err_text, reply_markup=retry_markup)
             except FloodWait as e:
                 pass
             return
