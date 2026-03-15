@@ -629,7 +629,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
 
 
     # ================================================
-    # Archive Action (Extraction Logic - Infinite Retry Password)
+    # Archive Action (Extraction Logic - Partial Retry Support)
     # ================================================
     elif query.data.startswith("archive_action"):
         data = query.data.split("|")
@@ -711,8 +711,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     ext_e_time = time()
             
             paths = await get_files(path=ext_files_dir)
+            has_error = any(err in extractor for err in ERROR_MSGS)
             
-            if any(err in extractor for err in ERROR_MSGS) or not paths:
+            if not paths:  # تم الفشل ولم يتم استخراج أي شيء
                 await async_rmtree(ext_files_dir) 
                 await del_ongoing_task(target_uid) 
                 
@@ -721,7 +722,7 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
                     [InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")]
                 ])
                 try:
-                    await query.message.edit("❌ **Extraction failed!**\nEither password was wrong, or archive is encrypted.", reply_markup=retry_markup)
+                    await query.message.edit("❌ **Extraction failed!**\nEither password was wrong, archive is encrypted, or files are fully corrupted.", reply_markup=retry_markup)
                 except FloodWait as e:
                     await asyncio.sleep(e.value)
                 except:
@@ -739,9 +740,6 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             upload_all_btn = InlineKeyboardButton("📤 Upload All (Albums) 📤", callback_data=f"ext_a|{folder_id}|{chat_id}|NONE|0")
             cancel_btn = InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancel_folder|{folder_id}")
             
-            # ==========================================
-            # أحتفظنا بالكود القديم الخاص بإنشاء لوحة الأزرار (لكي يكون الكود طويلاً كما أردت)
-            # ==========================================
             try:
                 i_e_buttons = await make_keyboard(
                     paths=paths,
@@ -762,10 +760,13 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             ])
 
             try:
-                await query.message.edit(
-                    f"✅ Extraction completed in {extrtime}!\n\n**Ready to upload:**", 
-                    reply_markup=simple_markup
-                )
+                # إذا حدث خطأ لكن توجد ملفات (تم الاستخراج جزئياً)
+                if has_error:
+                    msg_text = f"⚠️ **Partial Extraction in {extrtime}!**\nSome files were missing or corrupted, but we rescued {len(paths)} files.\n\n**Ready to upload:**"
+                else:
+                    msg_text = f"✅ Extraction completed in {extrtime}!\n\n**Ready to upload:**"
+                    
+                await query.message.edit(msg_text, reply_markup=simple_markup)
             except FloodWait as e:
                 await asyncio.sleep(e.value)
 
@@ -935,8 +936,9 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         ext_e_time = time()
             
         paths = await get_files(path=ext_files_dir)
+        has_error = any(err in extractor for err in ERROR_MSGS)
         
-        if any(err in extractor for err in ERROR_MSGS) or not paths:
+        if not paths:  # تم الفشل بشكل كامل بدون استخراج شيء
             await async_rmtree(ext_files_dir)
             await del_ongoing_task(user_id)
             
@@ -946,13 +948,14 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
             ])
             try:
                 await query.message.edit(
-                    "❌ **Merge/Extraction failed!**\nEither password was wrong or files are corrupted.",
+                    "❌ **Merge/Extraction failed!**\nNo files extracted. Either password was wrong or files are fully corrupted.",
                     reply_markup=retry_markup
                 )
             except FloodWait as e:
                 pass
             return
             
+        # إزالة أجزاء الضغط فقط
         for f in files:
             await async_remove(f)
 
@@ -970,10 +973,13 @@ async def unzipper_cb(unzip_bot: Client, query: CallbackQuery):
         ])
 
         try:
-            await query.message.edit(
-                f"✅ **Merge & Extraction completed in {extrtime}!**\n\nReady to upload:", 
-                reply_markup=simple_markup
-            )
+            # تم دمج الملفات مع وجود خطأ استخراج ولكن يوجد جزء منها صالح
+            if has_error:
+                msg_text = f"⚠️ **Partial Merge/Extraction in {extrtime}!**\nSome parts were missing/corrupted, but we rescued {len(paths)} files.\n\n**Ready to upload:**"
+            else:
+                msg_text = f"✅ **Merge & Extraction completed in {extrtime}!**\n\nReady to upload:"
+
+            await query.message.edit(msg_text, reply_markup=simple_markup)
         except Exception as e:
             LOGGER.error(f"Merged output err: {e}")
 
